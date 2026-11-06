@@ -9,7 +9,7 @@ struct RailView: View {
         VStack(spacing: 8) {
             Button { store.openCompanion() } label: {
                 VStack(spacing: 4) {
-                    CompanionMark(size: 28)
+                    FaceIcon(size: 28)
                     Text("Companion").font(.system(size: 11, weight: .medium))
                         .lineLimit(1).minimumScaleFactor(0.75)
                 }
@@ -25,7 +25,7 @@ struct RailView: View {
 
             Button { store.showInbox() } label: {
                 VStack(spacing: 4) {
-                    FaceIcon(size: 32)
+                    InboxFaceIcon(size: 32)
                     Text("Inbox").font(.system(size: 11, weight: .medium))
                 }
                 .frame(width: 48, height: 58)

@@ -14,7 +14,7 @@ app: build icon
 	cp $(BIN) $(APP)/Contents/MacOS/$(APP_NAME)
 	cp Support/Info.plist $(APP)/Contents/Info.plist
 	@if [ -f Support/AppIcon.icns ]; then cp Support/AppIcon.icns $(APP)/Contents/Resources/AppIcon.icns; fi
-	@if [ -f Support/OllieDuck.png ]; then cp Support/OllieDuck.png $(APP)/Contents/Resources/OllieDuck.png; fi
+	@if [ -f Support/OllieHead.png ]; then cp Support/OllieHead.png $(APP)/Contents/Resources/OllieHead.png; fi
 	codesign --force --deep --sign - $(APP)
 	@echo "Built $(APP)"
 
