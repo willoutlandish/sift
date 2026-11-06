@@ -151,6 +151,71 @@ final class CompanionTests: XCTestCase {
 
 
 
+
+    func testPaceBarMathsStatusesAndNulls() {
+        let base = CompanionShopPace(resource: "north", name: "North Studio", currency: "USD",
+                                     mtd: 500, goal: 1000, expectedByToday: 750, gap: -250,
+                                     progressPct: 50, paceStatus: "behind", basis: "total")
+        let behind = CompanionPaceBarModel(base)
+        XCTAssertEqual(behind.actualFraction, 0.5, accuracy: 0.0001)
+        XCTAssertEqual(behind.expectedFraction ?? -1, 0.75, accuracy: 0.0001)
+        XCTAssertEqual(behind.tone, .red)
+        XCTAssertEqual(behind.statusLabel, "Behind")
+        XCTAssertTrue(behind.text.contains("expected by today"))
+
+        var onTrack = base
+        onTrack = CompanionShopPace(resource: "north", name: "North Studio", currency: "USD",
+                                    mtd: 800, goal: 1000, expectedByToday: 750, gap: 50,
+                                    progressPct: 80, paceStatus: "on_track", basis: "total")
+        XCTAssertEqual(CompanionPaceBarModel(onTrack).tone, .green)
+        XCTAssertEqual(CompanionPaceBarModel(onTrack).statusLabel, "On track")
+
+        let ahead = CompanionShopPace(resource: "north", name: "North Studio", currency: "USD",
+                                      mtd: 900, goal: 1000, expectedByToday: 700, gap: 200,
+                                      progressPct: 90, paceStatus: "ahead", basis: "total")
+        XCTAssertEqual(CompanionPaceBarModel(ahead).tone, .green)
+
+        let tooEarly = CompanionShopPace(resource: "north", name: "North Studio", currency: "USD",
+                                         mtd: nil, goal: 1000, expectedByToday: nil, gap: nil,
+                                         progressPct: nil, paceStatus: "too_early", basis: "total")
+        XCTAssertEqual(CompanionPaceBarModel(tooEarly).tone, .grey)
+        XCTAssertEqual(CompanionPaceBarModel(tooEarly).statusLabel, "Too early")
+
+        let noTarget = CompanionShopPace(resource: "north", name: "North Studio", currency: "USD",
+                                         mtd: 300, goal: nil, expectedByToday: nil, gap: nil,
+                                         progressPct: nil, paceStatus: "no_target", basis: "total")
+        XCTAssertEqual(CompanionPaceBarModel(noTarget).text, "No target")
+        XCTAssertEqual(CompanionPaceBarModel(noTarget).tone, .grey)
+
+        let noData = CompanionShopPace(resource: "north", name: "North Studio", currency: nil,
+                                       mtd: nil, goal: 1000, expectedByToday: 600, gap: nil,
+                                       progressPct: nil, paceStatus: "no_data", basis: "total")
+        XCTAssertEqual(CompanionPaceBarModel(noData).text, "No data")
+        XCTAssertEqual(CompanionPaceBarModel(noData).tone, .grey)
+
+        XCTAssertEqual(CompanionPaceState.from(status: 403), .hidden)
+        XCTAssertEqual(CompanionPaceState.from(status: 404), .hidden)
+        XCTAssertEqual(CompanionPaceState.from(status: 200), .available)
+        XCTAssertEqual(CompanionPaceState.from(status: 500), .failed)
+    }
+
+    func testPaceParsesControlRoomShopsFixture() throws {
+        let json = #"""
+        {"as_of":"2026-11-06","month":{"start":"2026-11-01","day":6,"days_in_month":30,"elapsed_pct":20},
+         "shops":[
+          {"resource":"north","name":"North Studio","gmv":{"mtd":5000,"currency":"GBP","goal":10000,
+            "expected_by_today":6000,"gap":-1000,"progress_pct":50,"pace_status":"behind","basis":"total"}}
+         ],"totals":{"shops":1,"behind":1,"gmv_by_currency":[]}}
+        """#
+        let parsed = try XCTUnwrap(CompanionPace.parse(json))
+        let north = try XCTUnwrap(parsed["north"])
+        XCTAssertEqual(north.currency, "GBP")
+        XCTAssertEqual(north.mtd, 5000)
+        XCTAssertEqual(north.goal, 10000)
+        XCTAssertEqual(north.expectedByToday, 6000)
+        XCTAssertEqual(north.paceStatus, "behind")
+    }
+
     func testApprovalDecisionBodiesMatchTheWeb() throws {
         let listJSON = #"""
         {"counts":{"pending":1,"mine":1},"shops":[

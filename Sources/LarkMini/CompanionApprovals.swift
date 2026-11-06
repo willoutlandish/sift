@@ -365,6 +365,8 @@ final class CompanionApprovalsMonitor: NSObject, WKNavigationDelegate, Observabl
     static let shared = CompanionApprovalsMonitor()
 
     @Published private(set) var state: CompanionTodosState = .loading
+    @Published private(set) var pace: [String: CompanionShopPace] = [:]
+    @Published private(set) var paceState: CompanionPaceState = .unknown
     private var webView: WKWebView?
     private var baseURL: URL?
     private var pollTask: Task<Void, Never>?
@@ -396,6 +398,8 @@ final class CompanionApprovalsMonitor: NSObject, WKNavigationDelegate, Observabl
         failures = 0
         polling = false
         state = .loading
+        pace = [:]
+        paceState = .unknown
         OllieBadge.setApprovals(0)
     }
 
@@ -539,6 +543,7 @@ final class CompanionApprovalsMonitor: NSObject, WKNavigationDelegate, Observabl
         let snapshot = CompanionTodos.make(from: list)
         state = .ready(snapshot)
         OllieBadge.setApprovals(snapshot.total)
+        await refreshPace()
 
         let approvals = CompanionApprovals.flatten(list)
         if let seen = seenStore.load() {
@@ -557,6 +562,27 @@ final class CompanionApprovalsMonitor: NSObject, WKNavigationDelegate, Observabl
             }
         }
         schedule(after: 60)
+    }
+
+    private func refreshPace() async {
+        guard let reply = await fetch(path: CompanionPace.path) else {
+            paceState = .failed
+            return
+        }
+        switch CompanionPaceState.from(status: reply.status) {
+        case .available:
+            guard let parsed = CompanionPace.parse(reply.body) else {
+                paceState = .failed
+                return
+            }
+            pace = parsed
+            paceState = .available
+        case .hidden:
+            pace = [:]
+            paceState = .hidden
+        case .failed, .unknown:
+            paceState = .failed
+        }
     }
 
     private func notify(_ approval: CompanionApproval) async {

@@ -124,13 +124,26 @@ struct OllieTodoView: View {
                     .foregroundStyle(SiftStyle.green).padding(.horizontal, 24)
             }
         case .ready(let snapshot):
-            if snapshot.shops.isEmpty {
-                PaneEmptyState(symbol: "checkmark", title: "Nothing waiting on you",
-                               detail: "New approvals will appear here.")
+            let shops = displayShops(snapshot)
+            if shops.isEmpty {
+                VStack(alignment: .leading, spacing: 0) {
+                    if monitor.paceState == .failed {
+                        Text("Pace unavailable").font(.system(size: 11)).foregroundStyle(SiftStyle.muted)
+                            .padding(.horizontal, 16).padding(.top, 10)
+                    }
+                    PaneEmptyState(symbol: "checkmark", title: "Nothing waiting on you",
+                                   detail: "New approvals will appear here.")
+                }
             } else {
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: 14) {
-                        ForEach(snapshot.shops) { shop in
+                        if monitor.paceState == .failed {
+                            Text("Pace unavailable").font(.system(size: 11)).foregroundStyle(SiftStyle.muted)
+                        }
+                        if snapshot.total == 0 {
+                            Text("Nothing waiting on you").font(.system(size: 11)).foregroundStyle(SiftStyle.muted)
+                        }
+                        ForEach(shops) { shop in
                             shopSection(shop)
                         }
                     }
@@ -139,6 +152,17 @@ struct OllieTodoView: View {
                 .scrollIndicators(.never)
             }
         }
+    }
+
+    private func displayShops(_ snapshot: CompanionTodoSnapshot) -> [CompanionTodoShop] {
+        var shops = snapshot.shops
+        guard monitor.paceState == .available else { return shops }
+        let known = Set(shops.map(\.resource))
+        for pace in monitor.pace.values where !known.contains(pace.resource) {
+            shops.append(CompanionTodoShop(resource: pace.resource, name: pace.name,
+                                           pending: 0, items: [], more: 0))
+        }
+        return shops
     }
 
     private func shopSection(_ shop: CompanionTodoShop) -> some View {
@@ -158,6 +182,9 @@ struct OllieTodoView: View {
                     .foregroundStyle(SiftStyle.green)
                     .padding(.horizontal, 6).padding(.vertical, 1)
                     .background(Capsule().fill(SiftStyle.green.opacity(0.14)))
+            }
+            if let pace = monitor.pace[shop.resource] {
+                ShopPaceBarView(model: CompanionPaceBarModel(pace))
             }
             ForEach(shop.items) { item in
                 TodoItemRow(item: item) { message in
@@ -305,6 +332,44 @@ private struct TodoItemRow: View {
             } else {
                 message = outcome.message
             }
+        }
+    }
+}
+
+private struct ShopPaceBarView: View {
+    let model: CompanionPaceBarModel
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 3) {
+            HStack(spacing: 6) {
+                Text(model.text).font(.system(size: 9.5)).foregroundStyle(SiftStyle.secondary).lineLimit(1)
+                Spacer(minLength: 0)
+                Text(model.statusLabel).font(.system(size: 9.5, weight: .medium))
+                    .foregroundStyle(model.tone.color)
+            }
+            GeometryReader { geometry in
+                ZStack(alignment: .leading) {
+                    Capsule().fill(SiftStyle.line).frame(height: 5)
+                    Capsule().fill(model.tone.color)
+                        .frame(width: max(0, geometry.size.width * model.actualFraction), height: 5)
+                    if let tick = model.expectedFraction {
+                        Rectangle().fill(Color.white.opacity(0.7)).frame(width: 1, height: 9)
+                            .offset(x: min(max(0, geometry.size.width * tick), geometry.size.width - 1))
+                    }
+                }
+                .frame(maxHeight: .infinity, alignment: .center)
+            }
+            .frame(height: 9)
+        }
+    }
+}
+
+private extension CompanionPaceTone {
+    var color: Color {
+        switch self {
+        case .green: return SiftStyle.green
+        case .red: return Color.orange
+        case .grey: return SiftStyle.muted
         }
     }
 }
