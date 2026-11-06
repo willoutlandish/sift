@@ -31,7 +31,17 @@ enum CompanionConfig {
               components.user == nil,
               components.password == nil,
               components.fragment == nil else { return nil }
+        if scheme == "http", !isDevelopmentHTTPHost(host) { return nil }
         return components.url
+    }
+
+    static func isDevelopmentHTTPHost(_ raw: String) -> Bool {
+        let host = raw.lowercased().trimmingCharacters(in: CharacterSet(charactersIn: "[]"))
+        if host == "localhost" || host == "127.0.0.1" || host == "::1" { return true }
+        if host.hasSuffix(".test") { return true }
+        let parts = host.split(separator: ".").compactMap { Int($0) }
+        guard parts.count == 4, parts.allSatisfy({ (0...255).contains($0) }) else { return false }
+        return parts[0] == 100 && (64...127).contains(parts[1])
     }
 
     static func targetURL(base: URL, path: String?) -> URL? {
@@ -95,6 +105,27 @@ enum CompanionDragHitTest {
             row.start <= top && top <= row.end
                 && row.intervals.contains { $0.contains(point.x) }
         }
+    }
+
+    static func rows(from raw: [[String: Any]]) -> [CompanionDragRow] {
+        raw.prefix(8).compactMap { row in
+            guard let start = number(row["start"]), let end = number(row["end"]),
+                  start.isFinite, end.isFinite, start <= end,
+                  let pairs = row["intervals"] as? [[Any]] else { return nil }
+            let intervals = pairs.prefix(256).compactMap { pair -> ClosedRange<CGFloat>? in
+                guard pair.count == 2,
+                      let low = pair[0] as? NSNumber, let high = pair[1] as? NSNumber,
+                      low.doubleValue.isFinite, high.doubleValue.isFinite,
+                      low.doubleValue <= high.doubleValue else { return nil }
+                return CGFloat(low.doubleValue)...CGFloat(high.doubleValue)
+            }
+            return CompanionDragRow(start: CGFloat(start), end: CGFloat(end), intervals: intervals)
+        }
+    }
+
+    private static func number(_ value: Any?) -> Double? {
+        if let value = value as? NSNumber { return value.doubleValue }
+        return value as? Double
     }
 
     static func doubleClickAction(_ value: String?) -> DoubleClickAction {
@@ -173,28 +204,25 @@ struct CompanionNavigationPolicy: Equatable {
         case deny
     }
 
-    static let defaultSignInHosts: Set<String> = [
-        "outlandish.com",
-        "larksuite.com",
-        "larkoffice.com",
-        "feishu.cn"
-    ]
-
     let baseURL: URL
-    let signInHosts: Set<String>
 
-    init(baseURL: URL, signInHosts: Set<String> = CompanionNavigationPolicy.defaultSignInHosts) {
+    init(baseURL: URL) {
         self.baseURL = baseURL
-        self.signInHosts = Set(signInHosts.map { $0.lowercased() })
     }
 
     func decision(for url: URL) -> Decision {
         guard let scheme = url.scheme?.lowercased() else { return .external }
         if scheme == "about" || scheme == "blob" { return .allow }
-        guard scheme == "http" || scheme == "https",
-              let host = url.host?.lowercased() else { return .external }
-        if isBaseOrigin(url) || isAuthURL(url) || isSignInHost(host) { return .allow }
+        guard scheme == "http" || scheme == "https" else { return .external }
+        if isBaseOrigin(url) || isAuthURL(url) { return .allow }
         return .external
+    }
+
+    static func externalURL(_ url: URL) -> URL? {
+        guard let scheme = url.scheme?.lowercased(),
+              scheme == "https" || scheme == "mailto",
+              url.user == nil, url.password == nil else { return nil }
+        return url
     }
 
     func windowOpenDecision(for url: URL, topURL: URL?) -> WindowOpenDecision {
@@ -260,24 +288,19 @@ struct CompanionNavigationPolicy: Equatable {
         return defaultPort(baseURL) == defaultPort(url)
     }
 
-    private func isSignInHost(_ host: String) -> Bool {
-        signInHosts.contains { allowed in
-            host == allowed || host.hasSuffix("." + allowed)
-        }
-    }
-
     private func defaultPort(_ url: URL) -> Int? {
         url.port ?? (url.scheme?.lowercased() == "https" ? 443 : 80)
     }
 }
 
 enum CompanionWriteGuard {
-    static let productionHosts: Set<String> = ["outlandishdigital.us", "www.outlandishdigital.us"]
     static let refusal = "Ollie Dev is read-only on production. Use your real Ollie to approve."
+    // The Companion window itself is not guarded; this only gates native approvals.
 
     static func isReadOnly(baseURL: URL?, development: Bool = AppIdentity.isDevelopment) -> Bool {
         guard development, let host = baseURL?.host?.lowercased() else { return false }
-        return productionHosts.contains(host)
+        let trimmed = host.trimmingCharacters(in: CharacterSet(charactersIn: "."))
+        return !CompanionConfig.isDevelopmentHTTPHost(trimmed)
     }
 }
 

@@ -39,6 +39,7 @@ final class CompanionWindowController: NSWindowController, WKNavigationDelegate,
     private var lastTitlebarDoubleClick = Date.distantPast
     private var passkeyHintShown = false
     private var titlebarRows: [CompanionDragRow] = []
+    private var externalOpenTimes: [Date] = []
 
     private init() {
         let configuration = WKWebViewConfiguration()
@@ -376,17 +377,14 @@ final class CompanionWindowController: NSWindowController, WKNavigationDelegate,
             showPasskeyHint()
             return
         }
-        guard message.name == "ollieTitlebar", let rows = message.body as? [[String: Any]] else { return }
-        titlebarRows = rows.compactMap { row in
-            guard let start = row["start"] as? Double, let end = row["end"] as? Double,
-                  let pairs = row["intervals"] as? [[Any]] else { return nil }
-            let intervals = pairs.compactMap { pair -> ClosedRange<CGFloat>? in
-                guard pair.count == 2,
-                      let low = pair[0] as? NSNumber, let high = pair[1] as? NSNumber else { return nil }
-                return CGFloat(low.doubleValue)...CGFloat(high.doubleValue)
-            }
-            return CompanionDragRow(start: CGFloat(start), end: CGFloat(end), intervals: intervals)
-        }
+        guard message.name == "ollieTitlebar",
+              let baseURL,
+              CompanionConfig.originMatches(scheme: message.frameInfo.securityOrigin.`protocol`,
+                                            host: message.frameInfo.securityOrigin.host,
+                                            port: message.frameInfo.securityOrigin.port,
+                                            base: baseURL),
+              let rows = message.body as? [[String: Any]] else { return }
+        titlebarRows = CompanionDragHitTest.rows(from: rows)
     }
 
     private func showPasskeyHint() {
@@ -442,6 +440,13 @@ final class CompanionWindowController: NSWindowController, WKNavigationDelegate,
                 Task { await Notifications.shared.postBridge(title: title, body: body) }
                 replyHandler(true, nil)
             case .openExternal(let url):
+                let now = Date()
+                externalOpenTimes = externalOpenTimes.filter { now.timeIntervalSince($0) < 10 }
+                guard externalOpenTimes.count < 3 else {
+                    replyHandler(nil, "Too many external opens")
+                    return
+                }
+                externalOpenTimes.append(now)
                 NSWorkspace.shared.open(url)
                 replyHandler(true, nil)
             default:
@@ -457,23 +462,45 @@ final class CompanionWindowController: NSWindowController, WKNavigationDelegate,
             decisionHandler(.allow)
             return
         }
-        let isMainFrame = navigationAction.targetFrame?.isMainFrame ?? true
+        if navigationAction.targetFrame == nil {
+            switch policy?.windowOpenDecision(for: url, topURL: webView.url) ?? .deny {
+            case .loadInCompanion:
+                decisionHandler(.allow)
+            case .openExternally:
+                if navigationAction.navigationType == .linkActivated,
+                   let safe = CompanionNavigationPolicy.externalURL(url) {
+                    NSWorkspace.shared.open(safe)
+                }
+                decisionHandler(.cancel)
+            case .deny:
+                decisionHandler(.cancel)
+            }
+            return
+        }
         switch policy?.decision(for: url) ?? .allow {
         case .allow:
             decisionHandler(navigationAction.shouldPerformDownload ? .download : .allow)
         case .external:
-            if isMainFrame {
-                NSWorkspace.shared.open(url)
-                decisionHandler(.cancel)
-            } else {
-                decisionHandler(.allow)
+            if navigationAction.navigationType == .linkActivated,
+               navigationAction.targetFrame?.isMainFrame == true,
+               let safe = CompanionNavigationPolicy.externalURL(url) {
+                NSWorkspace.shared.open(safe)
             }
+            decisionHandler(.cancel)
         }
     }
 
     func webView(_ webView: WKWebView,
                  decidePolicyFor navigationResponse: WKNavigationResponse,
                  decisionHandler: @escaping (WKNavigationResponsePolicy) -> Void) {
+        guard navigationResponse.isForMainFrame,
+              let baseURL,
+              let url = navigationResponse.response.url,
+              CompanionConfig.originMatches(scheme: url.scheme ?? "", host: url.host ?? "",
+                                            port: url.port ?? 0, base: baseURL) else {
+            decisionHandler(.cancel)
+            return
+        }
         decisionHandler(navigationResponse.canShowMIMEType ? .allow : .download)
     }
 
@@ -523,19 +550,28 @@ final class CompanionWindowController: NSWindowController, WKNavigationDelegate,
             decisionHandler(.prompt)
             return
         }
-        switch type {
-        case .camera, .microphone, .cameraAndMicrophone:
-            decisionHandler(.grant)
-        @unknown default:
-            decisionHandler(.prompt)
-        }
+        decisionHandler(.prompt)
     }
 
     func webView(_ webView: WKWebView, navigationAction: WKNavigationAction, didBecome download: WKDownload) {
+        guard navigationAction.targetFrame?.isMainFrame == true,
+              let baseURL, let url = navigationAction.request.url,
+              CompanionConfig.originMatches(scheme: url.scheme ?? "", host: url.host ?? "",
+                                            port: url.port ?? 0, base: baseURL) else {
+            download.cancel()
+            return
+        }
         download.delegate = self
     }
 
     func webView(_ webView: WKWebView, navigationResponse: WKNavigationResponse, didBecome download: WKDownload) {
+        guard navigationResponse.isForMainFrame,
+              let baseURL, let url = navigationResponse.response.url,
+              CompanionConfig.originMatches(scheme: url.scheme ?? "", host: url.host ?? "",
+                                            port: url.port ?? 0, base: baseURL) else {
+            download.cancel()
+            return
+        }
         download.delegate = self
     }
 
@@ -545,8 +581,9 @@ final class CompanionWindowController: NSWindowController, WKNavigationDelegate,
                   completionHandler: @escaping (URL?) -> Void) {
         let directory = FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask).first
             ?? FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Downloads")
-        let filename = suggestedFilename.isEmpty ? "download" : suggestedFilename
-        var destination = directory.appendingPathComponent(filename)
+        let safe = Self.safeDownloadName(suggestedFilename)
+        guard !safe.isEmpty else { completionHandler(nil); return }
+        var destination = directory.appendingPathComponent(safe)
         let stem = destination.deletingPathExtension().lastPathComponent
         let suffix = destination.pathExtension
         var index = 2
@@ -556,5 +593,16 @@ final class CompanionWindowController: NSWindowController, WKNavigationDelegate,
             index += 1
         }
         completionHandler(destination)
+    }
+
+    nonisolated static func safeDownloadName(_ suggested: String) -> String {
+        let base = URL(fileURLWithPath: suggested).lastPathComponent
+            .trimmingCharacters(in: CharacterSet(charactersIn: "."))
+            .replacingOccurrences(of: "\n", with: "")
+            .replacingOccurrences(of: "\r", with: "")
+        let blocked: Set<String> = ["command", "terminal", "app", "pkg", "dmg", "sh", "tool", "scpt"]
+        let ext = (base as NSString).pathExtension.lowercased()
+        guard !base.isEmpty, !blocked.contains(ext) else { return "" }
+        return base
     }
 }

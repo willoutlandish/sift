@@ -43,3 +43,38 @@ final class QueryObserverBag {
         for token in tokens { center.removeObserver(token) }
     }
 }
+
+enum SecureResponseFile {
+    static func write(_ data: Data, to url: URL) {
+        let fd = open(url.path, O_WRONLY | O_CREAT | O_EXCL, 0o600)
+        guard fd >= 0 else { return }
+        defer { close(fd) }
+        data.withUnsafeBytes { buffer in
+            guard let base = buffer.baseAddress else { return }
+            var written = 0
+            while written < data.count {
+                let result = Darwin.write(fd, base.advanced(by: written), data.count - written)
+                if result <= 0 { break }
+                written += result
+            }
+        }
+    }
+
+    static func purgeStale(in directory: URL, prefixes: [String], olderThan: TimeInterval = 60) {
+        guard let files = try? FileManager.default.contentsOfDirectory(
+            at: directory, includingPropertiesForKeys: [.contentModificationDateKey]) else { return }
+        let cutoff = Date().addingTimeInterval(-olderThan)
+        for file in files where prefixes.contains(where: { file.lastPathComponent.hasPrefix($0) }) {
+            let modified = (try? file.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate
+            if let modified, modified < cutoff { try? FileManager.default.removeItem(at: file) }
+        }
+    }
+}
+
+enum AppQueryFreshness {
+    static func isFresh(_ note: Notification, maxAge: TimeInterval) -> Bool {
+        guard let sent = note.userInfo?["sent_at"] as? NSNumber else { return true }
+        let age = Date().timeIntervalSince1970 - sent.doubleValue
+        return age >= -5 && age <= maxAge
+    }
+}

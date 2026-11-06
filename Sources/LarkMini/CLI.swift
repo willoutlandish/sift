@@ -232,9 +232,7 @@ enum CLI {
             return fail("--show-in must be menubar, edge or both")
         }
         StateFile.shared.update { $0.settings.showIn = mode }
-        DistributedNotificationCenter.default().post(
-            name: .appSettingsChanged, object: nil,
-            userInfo: ["home": AppPaths.supportDirectory.path])
+        postQuery(.appSettingsChanged, userInfo: ["home": AppPaths.supportDirectory.path])
         return ok(["ok": true, "show_in": mode.rawValue])
     }
 
@@ -361,6 +359,13 @@ enum CLI {
         return payload
     }
 
+    private static func postQuery(_ name: Notification.Name, userInfo: [String: Any]) {
+        var info = userInfo
+        info["sent_at"] = Date().timeIntervalSince1970
+        DistributedNotificationCenter.default().postNotificationName(
+            name, object: nil, userInfo: info, deliverImmediately: true)
+    }
+
     private static func companion(_ args: [String]) -> Int32 {
         let state = StateFile.shared
         guard let sub = args.first else {
@@ -454,15 +459,9 @@ enum CLI {
         let prefix = "companion-status-\(request)-"
         let directory = AppPaths.supportDirectory
         let fileManager = FileManager.default
-        DistributedNotificationCenter.default().post(
-            name: .companionStatusRequest,
-            object: nil,
-            userInfo: [
-                "id": request,
-                "url": base.absoluteString,
-                "home": directory.path
-            ]
-        )
+        postQuery(.companionStatusRequest, userInfo: [
+            "id": request, "url": base.absoluteString, "home": directory.path
+        ])
         let deadline = Date().addingTimeInterval(CompanionProbeCoordinator.probeTimeout + 2)
         var sawResponse = false
         var firstResponseAt: Date?
@@ -501,10 +500,8 @@ enum CLI {
         let prefix = "companion-pace-\(request)-"
         let directory = AppPaths.supportDirectory
         let fileManager = FileManager.default
-        DistributedNotificationCenter.default().post(
-            name: .companionPaceRequest,
-            object: nil,
-            userInfo: ["id": request, "url": base.absoluteString, "home": directory.path])
+        postQuery(.companionPaceRequest,
+                  userInfo: ["id": request, "url": base.absoluteString, "home": directory.path])
         let deadline = Date().addingTimeInterval(CompanionProbeCoordinator.probeTimeout + 8)
         while Date() < deadline {
             if let files = try? fileManager.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil) {
@@ -536,9 +533,8 @@ enum CLI {
         let prefix = "companion-drag-map-\(request)-"
         let directory = AppPaths.supportDirectory
         let fileManager = FileManager.default
-        DistributedNotificationCenter.default().post(
-            name: .companionDragMapRequest, object: nil,
-            userInfo: ["id": request, "url": base.absoluteString, "home": directory.path])
+        postQuery(.companionDragMapRequest,
+                  userInfo: ["id": request, "url": base.absoluteString, "home": directory.path])
         let deadline = Date().addingTimeInterval(5)
         while Date() < deadline {
             if let files = try? fileManager.contentsOfDirectory(at: directory,
@@ -564,16 +560,9 @@ enum CLI {
         let prefix = "companion-open-\(request)-"
         let directory = AppPaths.supportDirectory
         let fileManager = FileManager.default
-        DistributedNotificationCenter.default().post(
-            name: .companionOpenRequest,
-            object: nil,
-            userInfo: [
-                "id": request,
-                "url": base.absoluteString,
-                "path": path,
-                "home": directory.path
-            ]
-        )
+        postQuery(.companionOpenRequest, userInfo: [
+            "id": request, "url": base.absoluteString, "path": path, "home": directory.path
+        ])
         let deadline = Date().addingTimeInterval(1)
         while Date() < deadline {
             if let files = try? fileManager.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil) {

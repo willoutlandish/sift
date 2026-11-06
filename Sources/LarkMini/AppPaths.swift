@@ -2,7 +2,7 @@ import Foundation
 
 enum AppIdentity {
     static var bundleIdentifier: String {
-        Bundle.main.bundleIdentifier ?? "com.outlandish.ollie"
+        Bundle.main.bundleIdentifier ?? "com.outlandish.ollie.dev"
     }
 
     static var isDevelopment: Bool {

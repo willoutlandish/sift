@@ -54,6 +54,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         GazeTracker.shared.start()
+        try? FileManager.default.setAttributes([.posixPermissions: 0o700],
+                                               ofItemAtPath: AppPaths.supportDirectory.path)
+        SecureResponseFile.purgeStale(in: AppPaths.supportDirectory,
+                                      prefixes: ["companion-status-", "companion-pace-",
+                                                 "companion-drag-map-", "companion-open-"])
         Notifications.shared.onOpen = { [weak self] destination in
             guard let self else { return }
             self.panelController.expand(fromMenuBar: self.store.settings.showIn == .menubar)
@@ -130,8 +135,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             if url.scheme == AppIdentity.urlScheme, url.host == "companion" {
                 let path = URLComponents(url: url, resolvingAgainstBaseURL: false)?
                     .queryItems?.first { $0.name == "path" }?.value
-                panelController.expand(fromMenuBar: store.settings.showIn == .menubar)
-                store.openCompanion(path: path)
+                let raw = (path ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+                let normalized = raw.hasPrefix("/") ? raw : "/" + raw
+                guard normalized.hasPrefix("/companion/app") else { return }
+                let accepted = CompanionPath.accepted(normalized)
+                guard CompanionConfig.isCompanionAppPath(accepted) else { return }
+                store.openCompanion(path: accepted, activate: false)
             } else if let id = ChatLinks.chatId(from: url) {
                 panelController.expand(fromMenuBar: store.settings.showIn == .menubar)
                 store.openLinkedChat(id)
@@ -179,7 +188,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func answerCompanionStatus(_ note: Notification) {
-        guard let id = note.userInfo?["id"] as? String, UUID(uuidString: id) != nil,
+        guard AppQueryFreshness.isFresh(note, maxAge: 20), let id = note.userInfo?["id"] as? String, UUID(uuidString: id) != nil,
               note.userInfo?["home"] as? String == AppPaths.supportDirectory.path,
               let requested = (note.userInfo?["url"] as? String).flatMap(CompanionConfig.validatedURL),
               let configured = StateFile.shared.reload().companionURL.flatMap(CompanionConfig.validatedURL),
@@ -190,12 +199,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 .appendingPathComponent("companion-status-\(id)-\(instance).json")
             let payload: [String: Any] = ["signed_in": result.signedIn, "cookie_present": result.cookiePresent]
             guard let data = try? JSONSerialization.data(withJSONObject: payload) else { return }
-            try? data.write(to: file, options: .atomic)
+            SecureResponseFile.write(data, to: file)
         }
     }
 
     private func answerCompanionDragMap(_ note: Notification) {
-        guard let id = note.userInfo?["id"] as? String, UUID(uuidString: id) != nil,
+        guard AppQueryFreshness.isFresh(note, maxAge: 8), let id = note.userInfo?["id"] as? String, UUID(uuidString: id) != nil,
               note.userInfo?["home"] as? String == AppPaths.supportDirectory.path,
               let requested = (note.userInfo?["url"] as? String).flatMap(CompanionConfig.validatedURL),
               let configured = StateFile.shared.reload().companionURL.flatMap(CompanionConfig.validatedURL),
@@ -208,12 +217,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             let file = AppPaths.supportDirectory
                 .appendingPathComponent("companion-drag-map-\(id)-\(instance).json")
             guard let data = try? JSONSerialization.data(withJSONObject: payload) else { return }
-            try? data.write(to: file, options: .atomic)
+            SecureResponseFile.write(data, to: file)
         }
     }
 
     private func answerCompanionPace(_ note: Notification) {
-        guard let id = note.userInfo?["id"] as? String, UUID(uuidString: id) != nil,
+        guard AppQueryFreshness.isFresh(note, maxAge: 24), let id = note.userInfo?["id"] as? String, UUID(uuidString: id) != nil,
               note.userInfo?["home"] as? String == AppPaths.supportDirectory.path,
               let requested = (note.userInfo?["url"] as? String).flatMap(CompanionConfig.validatedURL),
               let configured = StateFile.shared.reload().companionURL.flatMap(CompanionConfig.validatedURL),
@@ -235,12 +244,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             let file = AppPaths.supportDirectory
                 .appendingPathComponent("companion-pace-\(id)-\(instance).json")
             guard let data = try? JSONSerialization.data(withJSONObject: payload) else { return }
-            try? data.write(to: file, options: .atomic)
+            SecureResponseFile.write(data, to: file)
         }
     }
 
     private func answerCompanionOpen(_ note: Notification) {
-        guard let id = note.userInfo?["id"] as? String, UUID(uuidString: id) != nil,
+        guard AppQueryFreshness.isFresh(note, maxAge: 4), let id = note.userInfo?["id"] as? String, UUID(uuidString: id) != nil,
               note.userInfo?["home"] as? String == AppPaths.supportDirectory.path,
               let requested = (note.userInfo?["url"] as? String).flatMap(CompanionConfig.validatedURL),
               let configured = StateFile.shared.reload().companionURL.flatMap(CompanionConfig.validatedURL),
@@ -257,7 +266,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             .appendingPathComponent("companion-open-\(id)-\(instance).json")
         let payload: [String: Any] = ["opened": true, "url": target.absoluteString]
         guard let data = try? JSONSerialization.data(withJSONObject: payload) else { return }
-        try? data.write(to: file, options: .atomic)
+        SecureResponseFile.write(data, to: file)
     }
 
     /// Accessory apps with no main menu never route ⌘C/⌘V/⌘A, so the panel's

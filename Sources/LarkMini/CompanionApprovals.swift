@@ -218,9 +218,10 @@ enum CompanionApprovals {
     }
 
     static func clickPath(resource: String?) -> String {
-        guard let resource = nonEmpty(resource) else { return "/companion/app/approvals" }
-        let escaped = resource.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? resource
-        return "/companion/app/\(escaped)/approvals"
+        guard let resource = nonEmpty(resource), resource != ".", resource != ".." else {
+            return "/companion/app/approvals"
+        }
+        return "/companion/app/\(CompanionActivity.escape(resource))/approvals"
     }
 
     private static func nonEmpty(_ value: String?) -> String? {
@@ -496,12 +497,17 @@ final class CompanionApprovalsMonitor: NSObject, WKNavigationDelegate, Observabl
     private var failures = 0
     private var polling = false
     private var paceRefreshing = false
+    private var pageReady: CheckedContinuation<Void, Never>?
     private let seenStore = CompanionApprovalsSeenStore()
+    private static let scriptWorld = WKContentWorld.world(name: "ollie")
 
     var isReadOnly: Bool { CompanionWriteGuard.isReadOnly(baseURL: baseURL) }
 
     func start(baseURL: URL) {
-        if self.baseURL == baseURL, webView != nil { return }
+        if self.baseURL == baseURL, let webView {
+            if !isOnBase(webView.url) { webView.load(URLRequest(url: baseURL)) }
+            return
+        }
         stop()
         self.baseURL = baseURL
         state = .loading
@@ -544,6 +550,55 @@ final class CompanionApprovalsMonitor: NSObject, WKNavigationDelegate, Observabl
         }
     }
 
+    private func isOnBase(_ url: URL?) -> Bool {
+        guard let url, let baseURL else { return false }
+        return CompanionConfig.originMatches(scheme: url.scheme ?? "", host: url.host ?? "",
+                                             port: url.port ?? 0, base: baseURL)
+    }
+
+    private func ensureBasePage() async {
+        guard let webView, let baseURL, !isOnBase(webView.url) else { return }
+        await withCheckedContinuation { continuation in
+            pageReady = continuation
+            webView.load(URLRequest(url: baseURL))
+            DispatchQueue.main.asyncAfter(deadline: .now() + 5) { [weak self] in
+                guard let self, let ready = self.pageReady else { return }
+                self.pageReady = nil
+                ready.resume()
+            }
+        }
+    }
+
+    func webView(_ webView: WKWebView,
+                 decidePolicyFor navigationAction: WKNavigationAction,
+                 decisionHandler: @escaping (WKNavigationActionPolicy) -> Void) {
+        guard let baseURL,
+              let url = navigationAction.request.url,
+              CompanionConfig.originMatches(scheme: url.scheme ?? "", host: url.host ?? "",
+                                            port: url.port ?? 0, base: baseURL) else {
+            decisionHandler(.cancel)
+            return
+        }
+        decisionHandler(.allow)
+    }
+
+    func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+        failures = 0
+        if let ready = pageReady {
+            pageReady = nil
+            ready.resume()
+        }
+    }
+
+    func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
+        failures += 1
+        let url = baseURL
+        DispatchQueue.main.asyncAfter(deadline: .now() + backoff) { [weak self] in
+            guard let self, let url, self.baseURL == url else { return }
+            self.webView?.load(URLRequest(url: url))
+        }
+    }
+
     func webView(_ webView: WKWebView, didCommit navigation: WKNavigation!) {
         schedule(after: 2)
     }
@@ -569,6 +624,7 @@ final class CompanionApprovalsMonitor: NSObject, WKNavigationDelegate, Observabl
 
     func fetch(path: String) async -> CompanionFetchReply? {
         guard let webView, baseURL != nil else { return nil }
+        await ensureBasePage()
         let encoded = (try? JSONSerialization.data(withJSONObject: [path]))
             .flatMap { String(data: $0, encoding: .utf8) } ?? "[\"/\"]"
         let literal = String(encoded.dropFirst().dropLast())
@@ -595,6 +651,7 @@ final class CompanionApprovalsMonitor: NSObject, WKNavigationDelegate, Observabl
     func postJSON(path: String, body: [String: Any]) async -> CompanionFetchReply? {
         guard !isReadOnly else { return nil }
         guard let webView, baseURL != nil else { return nil }
+        await ensureBasePage()
         guard let pathData = try? JSONSerialization.data(withJSONObject: [path]),
               let pathArray = String(data: pathData, encoding: .utf8),
               let bodyData = try? JSONSerialization.data(withJSONObject: body),
@@ -631,7 +688,7 @@ final class CompanionApprovalsMonitor: NSObject, WKNavigationDelegate, Observabl
         let gate = FetchGate()
         return await withCheckedContinuation { continuation in
             gate.set(continuation)
-            webView.callAsyncJavaScript(script, arguments: [:], in: nil, in: .page) { result in
+            webView.callAsyncJavaScript(script, arguments: [:], in: nil, in: Self.scriptWorld) { result in
                 switch result {
                 case .success(let value): gate.finish(value)
                 case .failure: gate.finish(nil)

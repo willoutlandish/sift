@@ -11,8 +11,13 @@ final class CompanionTests: XCTestCase {
         XCTAssertNil(CompanionConfig.validatedURL("javascript:alert(1)"))
         XCTAssertNil(CompanionConfig.validatedURL("example.com"))
         XCTAssertNil(CompanionConfig.validatedURL("https:///missing-host"))
+        XCTAssertNil(CompanionConfig.validatedURL("http://example.com"))
         XCTAssertNil(CompanionConfig.validatedURL("https://user:secret@example.com"))
         XCTAssertNil(CompanionConfig.validatedURL(""))
+        XCTAssertNotNil(CompanionConfig.validatedURL("http://localhost:8090"))
+        XCTAssertNotNil(CompanionConfig.validatedURL("http://dev.preview.test:8090"))
+        XCTAssertNotNil(CompanionConfig.validatedURL("http://100.64.0.1:8090"))
+        XCTAssertNil(CompanionConfig.validatedURL("http://100.128.0.1:8090"))
     }
 
     func testTargetPathStaysOnTheConfiguredOrigin() {
@@ -148,7 +153,11 @@ final class CompanionTests: XCTestCase {
         XCTAssertFalse(CompanionWriteGuard.isReadOnly(baseURL: production, development: false))
         XCTAssertFalse(CompanionWriteGuard.isReadOnly(baseURL: URL(string: "http://100.113.131.96:8090")!,
                                                       development: true))
-        XCTAssertFalse(CompanionWriteGuard.isReadOnly(baseURL: URL(string: "https://notoutlandishdigital.us")!,
+        XCTAssertTrue(CompanionWriteGuard.isReadOnly(baseURL: URL(string: "https://notoutlandishdigital.us")!,
+                                                     development: true))
+        XCTAssertFalse(CompanionWriteGuard.isReadOnly(baseURL: URL(string: "http://127.0.0.1:8090")!,
+                                                      development: true))
+        XCTAssertFalse(CompanionWriteGuard.isReadOnly(baseURL: URL(string: "http://preview.test")!,
                                                       development: true))
         XCTAssertEqual(CompanionWriteGuard.refusal,
                        "Ollie Dev is read-only on production. Use your real Ollie to approve.")
@@ -509,28 +518,48 @@ final class CompanionTests: XCTestCase {
         try? FileManager.default.removeItem(at: url)
     }
 
-    func testNavigationAllowsTheOriginAndSignInHosts() {
+    func testNavigationAllowsOnlyTheOriginAndExactAuthRoutes() {
         let base = URL(string: "http://100.113.131.96:8090")!
-        let policy = CompanionNavigationPolicy(baseURL: base, signInHosts: ["outlandish.com"])
+        let policy = CompanionNavigationPolicy(baseURL: base)
 
         XCTAssertEqual(policy.decision(for: URL(string: "http://100.113.131.96:8090/companion/app/abc")!), .allow)
         XCTAssertEqual(policy.decision(for: URL(string: "http://100.113.131.96:8090/outlandish/sign-in")!), .allow)
-        XCTAssertEqual(policy.decision(for: URL(string: "https://outlandish.com/sign-in")!), .allow)
-        XCTAssertEqual(policy.decision(for: URL(string: "https://id.outlandish.com/login")!), .allow)
+        XCTAssertEqual(policy.decision(for: URL(string: "https://outlandish.com/sign-in")!), .external)
+        XCTAssertEqual(policy.decision(for: URL(string: "https://evil.larksuite.com/accounts/page/login")!), .external)
+        XCTAssertEqual(policy.decision(for: URL(string: "https://accounts.larksuite.com/accounts/page/login")!), .allow)
+        XCTAssertEqual(policy.decision(for: URL(string: "https://open.larksuite.com/open-apis/authen/v1/authorize")!), .allow)
+        XCTAssertEqual(policy.decision(for: URL(string: "https://open.larksuite.com/open-apis/authen/v1/index")!), .external)
         XCTAssertEqual(policy.decision(for: URL(string: "about:blank")!), .allow)
-
-        let defaults = CompanionNavigationPolicy(baseURL: base)
-        XCTAssertEqual(defaults.decision(for: URL(string: "https://open.larksuite.com/open-apis/authen/v1/index")!), .allow)
     }
 
     func testNavigationSendsOtherLinksToTheBrowser() {
-        let policy = CompanionNavigationPolicy(baseURL: URL(string: "http://100.113.131.96:8090")!,
-                                               signInHosts: ["outlandish.com"])
+        let policy = CompanionNavigationPolicy(baseURL: URL(string: "http://100.113.131.96:8090")!)
 
         XCTAssertEqual(policy.decision(for: URL(string: "https://example.com/report")!), .external)
         XCTAssertEqual(policy.decision(for: URL(string: "http://100.113.131.96:8091/companion")!), .external)
         XCTAssertEqual(policy.decision(for: URL(string: "https://notoutlandish.com/login")!), .external)
         XCTAssertEqual(policy.decision(for: URL(string: "mailto:help@example.com")!), .external)
+        XCTAssertEqual(CompanionNavigationPolicy.externalURL(URL(string: "file:///etc/passwd")!), nil)
+        XCTAssertEqual(CompanionNavigationPolicy.externalURL(URL(string: "smb://host/share")!), nil)
+        XCTAssertEqual(CompanionNavigationPolicy.externalURL(URL(string: "ollie://chat/x")!), nil)
+        XCTAssertNotNil(CompanionNavigationPolicy.externalURL(URL(string: "https://example.com")!))
+        XCTAssertNotNil(CompanionNavigationPolicy.externalURL(URL(string: "mailto:help@example.com")!))
+    }
+
+    func testDownloadNamesAndBadDragRowsAreRejected() {
+        XCTAssertEqual(CompanionWindowController.safeDownloadName("../../invoice.pdf"), "invoice.pdf")
+        XCTAssertEqual(CompanionWindowController.safeDownloadName(".hidden.pdf"), "hidden.pdf")
+        XCTAssertEqual(CompanionWindowController.safeDownloadName("payload.command"), "")
+        XCTAssertEqual(CompanionWindowController.safeDownloadName("payload.APP"), "")
+        let rows = CompanionDragHitTest.rows(from: [
+            ["start": 0, "end": 10, "intervals": [[0, 10], [20, 30]]],
+            ["start": 20, "end": 10, "intervals": [[0, 10]]],
+            ["start": Double.nan, "end": 10, "intervals": []],
+            ["start": 10, "end": 20, "intervals": [[30, 20], [40, 50]]]
+        ])
+        XCTAssertEqual(rows.count, 2)
+        XCTAssertEqual(rows[0].intervals.count, 2)
+        XCTAssertEqual(rows[1].intervals, [40...50])
     }
 
     @MainActor func testLarkPopupsRespectPreferencePaneAndPermanentMute() {

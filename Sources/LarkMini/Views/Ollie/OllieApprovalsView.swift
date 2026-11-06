@@ -10,7 +10,7 @@ struct OllieApprovalsView: View {
     @State private var showAll: Bool
     @State private var selectedCategory: String?
     @State private var expandedBatch: String?
-    @State private var pendingBatch: (id: String, answer: String)?
+    @State private var pendingBatch: (id: String, answer: String, itemIds: Set<String>)?
     @State private var banner: String?
 
     init(resource: String?, name: String?, onBack: @escaping () -> Void) {
@@ -130,20 +130,20 @@ struct OllieApprovalsView: View {
                             .padding(.horizontal, 2).padding(.top, 6)
                     }
                     if let item = model.doThisFirst {
-                        doThisFirst(item)
+                        doThisFirst(item).id(item.id)
                     }
                     ForEach(model.batches) { batch in
-                        batchRow(batch)
+                        batchRow(batch).id(batch.id)
                     }
                     ForEach(Array(model.newer.enumerated()), id: \.element.id) { index, item in
-                        approvalRow(item).ollieRise(index)
+                        approvalRow(item).id(item.id).ollieRise(index)
                     }
                     if !model.older.isEmpty {
                         Text("Older").font(.system(size: 11)).tracking(0.4)
                             .foregroundStyle(OllieStyle.dim)
                             .padding(.horizontal, 2).padding(.top, 6)
                         ForEach(Array(model.older.enumerated()), id: \.element.id) { index, item in
-                            approvalRow(item).ollieRise(index)
+                            approvalRow(item).id(item.id).ollieRise(index)
                         }
                     }
                     if model.doThisFirst == nil && model.batches.isEmpty && model.newer.isEmpty && model.older.isEmpty {
@@ -204,7 +204,8 @@ struct OllieApprovalsView: View {
                             }
                             HStack(spacing: 10) {
                                 Button(pendingBatch.answer == "approve" ? "Confirm approve all" : "Confirm decline all") {
-                                    decideBatch(batch, answer: pendingBatch.answer)
+                                    decideBatch(batch, answer: pendingBatch.answer,
+                                                itemIds: pendingBatch.itemIds)
                                 }
                                 .buttonStyle(.plain).font(.system(size: 11, weight: .semibold))
                                 .foregroundStyle(OllieStyle.lime)
@@ -217,10 +218,14 @@ struct OllieApprovalsView: View {
                         .background(OllieStyle.bg, in: RoundedRectangle(cornerRadius: 7))
                     } else if !monitor.isReadOnly {
                         HStack(spacing: 10) {
-                            Button("Approve all") { pendingBatch = (batch.id, "approve") }
+                            Button("Approve all") {
+                                pendingBatch = (batch.id, "approve", Set(batch.items.map(\.id)))
+                            }
                                 .buttonStyle(.plain).font(.system(size: 11, weight: .semibold))
                                 .foregroundStyle(OllieStyle.lime)
-                            Button("Decline all") { pendingBatch = (batch.id, "skip") }
+                            Button("Decline all") {
+                                pendingBatch = (batch.id, "skip", Set(batch.items.map(\.id)))
+                            }
                                 .buttonStyle(.plain).font(.system(size: 11, weight: .semibold))
                                 .foregroundStyle(OllieStyle.dim)
                         }
@@ -235,10 +240,12 @@ struct OllieApprovalsView: View {
             .strokeBorder(OllieStyle.border, style: StrokeStyle(lineWidth: 1, dash: [4, 3])))
     }
 
-    private func decideBatch(_ batch: OllieApprovalBatch, answer: String) {
+    private func decideBatch(_ batch: OllieApprovalBatch, answer: String, itemIds: Set<String>) {
         pendingBatch = nil
+        let items = batch.items.filter { itemIds.contains($0.id) }
+        guard !items.isEmpty else { return }
         Task { @MainActor in
-            let outcome = await CompanionApprovalsActions.shared.submitBatch(items: batch.items, answer: answer)
+            let outcome = await CompanionApprovalsActions.shared.submitBatch(items: items, answer: answer)
             banner = outcome.message
             monitor.refresh()
         }
@@ -271,7 +278,7 @@ private struct OllieApprovalItemRow: View {
     let readOnly: Bool
     let onChanged: (String) -> Void
 
-    @State private var confirming: String?
+    @State private var confirming: (id: String, answer: String)?
     @State private var busy = false
     @State private var message: String?
 
@@ -303,7 +310,7 @@ private struct OllieApprovalItemRow: View {
                 HStack(spacing: 8) {
                     ForEach(item.answers, id: \.self) { answer in
                         if answer == "approve" || answer == "skip" {
-                            Button(label(answer)) { confirming = answer }
+                            Button(label(answer)) { confirming = (item.id, answer) }
                                 .buttonStyle(.plain)
                                 .font(.system(size: 11.5, weight: .medium))
                                 .foregroundStyle(answer == "approve" ? OllieStyle.lime : OllieStyle.dim)
@@ -328,8 +335,8 @@ private struct OllieApprovalItemRow: View {
             if let reason = item.disabledReason {
                 Text(reason).font(.system(size: 10)).foregroundStyle(OllieStyle.muted)
             }
-            if let confirming, !readOnly {
-                confirmBlock(confirming)
+            if let confirming, confirming.id == item.id, !readOnly {
+                confirmBlock(confirming.answer)
             }
             if let message {
                 Text(message).font(.system(size: 10.5))
@@ -392,6 +399,10 @@ private struct OllieApprovalItemRow: View {
     }
 
     private func submit(_ answer: String) {
+        guard confirming?.id == item.id, confirming?.answer == answer else {
+            confirming = nil
+            return
+        }
         guard !busy else { return }
         busy = true
         message = nil

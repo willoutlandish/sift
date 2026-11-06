@@ -1060,7 +1060,7 @@ final class Store: ObservableObject {
         companionURL.flatMap(CompanionConfig.validatedURL) != nil
     }
 
-    func openCompanion(path: String? = nil) {
+    func openCompanion(path: String? = nil, activate: Bool = true) {
         let state = stateFile.reload()
         companionURL = state.companionURL
         guard let raw = state.companionURL,
@@ -1070,7 +1070,7 @@ final class Store: ObservableObject {
         }
         errorText = nil
         CompanionApprovalsMonitor.shared.start(baseURL: base)
-        CompanionWindowController.shared.open(baseURL: base, path: path)
+        CompanionWindowController.shared.open(baseURL: base, path: path, activate: activate)
     }
 
     func openCompanionSignIn() {

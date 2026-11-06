@@ -30,14 +30,31 @@
 	<true/>
 	<key>NSHumanReadableCopyright</key>
 	<string>Outlandish</string>
+	<key>LSFileQuarantineEnabled</key>
+	<true/>
 	<key>NSCameraUsageDescription</key>
 	<string>Ollie may use the camera when a shop page asks for it.</string>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>Ollie may use the microphone when a shop page asks for it.</string>
 	<key>NSAppTransportSecurity</key>
 	<dict>
-		<key>NSAllowsArbitraryLoadsInWebContent</key>
+		<key>NSAllowsLocalNetworking</key>
 		<true/>
+		<key>NSExceptionDomains</key>
+		<dict>
+			<key>100.113.131.96</key>
+			<dict>
+				<key>NSExceptionAllowsInsecureHTTPLoads</key>
+				<true/>
+			</dict>
+			<key>test</key>
+			<dict>
+				<key>NSIncludesSubdomains</key>
+				<true/>
+				<key>NSExceptionAllowsInsecureHTTPLoads</key>
+				<true/>
+			</dict>
+		</dict>
 	</dict>
 	<key>CFBundleURLTypes</key>
 	<array>

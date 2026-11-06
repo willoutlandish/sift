@@ -364,7 +364,7 @@ final class CompanionActivity: ObservableObject {
         return components?.string ?? path
     }
 
-    private static func escape(_ value: String) -> String {
+    nonisolated static func escape(_ value: String) -> String {
         var allowed = CharacterSet.urlPathAllowed
         allowed.remove(charactersIn: "/")
         return value.addingPercentEncoding(withAllowedCharacters: allowed) ?? value
