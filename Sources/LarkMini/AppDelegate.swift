@@ -17,6 +17,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var keyMonitor: Any?
     private let panelSettingsBag = QueryObserverBag()
     private var queryActivity: NSObjectProtocol?
+    private var wakeObserver: NSObjectProtocol?
     private var badgeWatch: AnyCancellable?
     private var companionProbes: [CompanionSignInProbe] = []
     private let companionStatusInstance = UUID().uuidString
@@ -89,6 +90,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                                 suspensionBehavior: .deliverImmediately)
         queryActivity = ProcessInfo.processInfo.beginActivity(
             options: [.userInitiated], reason: "Answer local Ollie CLI queries")
+        wakeObserver = NSWorkspace.shared.notificationCenter.addObserver(
+            forName: NSWorkspace.didWakeNotification, object: nil, queue: .main
+        ) { _ in
+            MainActor.assumeIsolated { CompanionApprovalsMonitor.shared.wake() }
+        }
         installEditMenu()
         installKeyMonitor()
         panelController.menuBarAnchor = { [weak self] in self?.statusItemAnchor() }
@@ -151,6 +157,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationWillTerminate(_ notification: Notification) {
         if let outsideMonitor { NSEvent.removeMonitor(outsideMonitor) }
         if let queryActivity { ProcessInfo.processInfo.endActivity(queryActivity) }
+        if let wakeObserver {
+            NSWorkspace.shared.notificationCenter.removeObserver(wakeObserver)
+        }
         let queryCenter = DistributedNotificationCenter.default()
         for name in [Notification.Name.companionStatusRequest, .companionOpenRequest,
                      .companionPaceRequest, .companionDragMapRequest, .appSettingsChanged] {
@@ -379,7 +388,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func statusItemAnchor() -> NSRect? {
-        guard statusItem != nil, let screen = NSScreen.main else { return nil }
+        guard statusItem != nil, let screen = NSScreen.screens.first else { return nil }
         let pid = Int(ProcessInfo.processInfo.processIdentifier)
         guard let windows = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements],
                                                        kCGNullWindowID) as? [[String: Any]] else { return nil }

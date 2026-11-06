@@ -605,4 +605,19 @@ final class CompanionTests: XCTestCase {
         XCTAssertEqual(hits, 1)
     }
 
+
+    func testPortfolioSkipsBadShopsAndDuplicateResources() throws {
+        let json = #"""
+        {"shops":[
+          {"resource":"same","name":"First","gmv":{"mtd":1,"currency":"USD","goal":10}},
+          {"resource":"same","name":"Second","gmv":{"mtd":2,"currency":"USD","goal":10}},
+          {"resource":"bad","name":"No GMV"},
+          {"name":"No Resource","gmv":{"mtd":1,"currency":"USD","goal":10}}
+        ],"totals":{"gmv_by_currency":[]}}
+        """#
+        let parsed = try XCTUnwrap(CompanionPace.parse(json))
+        XCTAssertEqual(parsed.shops.count, 1)
+        XCTAssertEqual(parsed.shops["same"]?.name, "First")
+    }
+
 }

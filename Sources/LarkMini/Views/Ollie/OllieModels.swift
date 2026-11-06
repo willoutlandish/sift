@@ -102,7 +102,7 @@ struct OllieTodayModel: Equatable {
                     resource: paceShop.resource,
                     name: paceShop.name,
                     pace: paceShop,
-                    pending: approvalsAvailable ? (approvalShop?.pending ?? paceShop.needsYouTotal) : paceShop.needsYouTotal,
+                    pending: approvalsAvailable ? (approvalShop?.pending ?? 0) : paceShop.needsYouTotal,
                     activity: activity[paceShop.resource]))
             }
         }
@@ -146,10 +146,10 @@ struct OllieTodayModel: Equatable {
 
         var parts: [String] = []
         let unavailable = totals?.unavailableShops
-        if paceAvailable, !shops.isEmpty,
-           (unavailable.map { $0 >= shops.count } ?? !paceShops.contains(where: { $0.mtd != nil })) {
-            let noun = shops.count == 1 ? "shop" : "shops"
-            parts.append("No sales data yet for \(shops.count) \(noun)")
+        if paceAvailable, !paceShops.isEmpty,
+           (unavailable.map { $0 >= paceShops.count } ?? !paceShops.contains(where: { $0.mtd != nil })) {
+            let noun = paceShops.count == 1 ? "shop" : "shops"
+            parts.append("No sales data yet for \(paceShops.count) \(noun)")
         } else if let onPace, let totalPace, let behind {
             parts.append("\(onPace) of \(totalPace) shops on pace")
             parts.append("\(totals?.behind ?? behind) behind")
@@ -179,8 +179,10 @@ struct OllieTodayModel: Equatable {
         if let totals, !totals.byCurrency.isEmpty {
             return totals.byCurrency.map { total in
                 // Portfolio totals omit expected_by_today; the tick is the month's elapsed percentage of goal.
-                let expected = (total.goal ?? 0) > 0
-                    ? total.goal! * ((totals.elapsedPct ?? 0) / 100) : nil
+                let expected: Double? = {
+                    guard let goal = total.goal, goal > 0, let elapsed = totals.elapsedPct else { return nil }
+                    return goal * (elapsed / 100)
+                }()
                 let gap = (total.mtd != nil && expected != nil) ? total.mtd! - expected! : nil
                 let progress = (total.mtd != nil && (total.goal ?? 0) > 0)
                     ? total.mtd! / total.goal! * 100 : nil

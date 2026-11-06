@@ -233,15 +233,19 @@ final class CompanionActivity: ObservableObject {
     @Published private(set) var lastRead: Date?
     @Published private(set) var summaries: [String: CompanionShopActivitySummary] = [:]
     private var summaryLoading = Set<String>()
+    private var summaryFetched: [String: Date] = [:]
+    private var availabilityByResource: [String: CompanionActivityAvailability] = [:]
 
     private var resource: String?
     private var task: Task<Void, Never>?
     private var refreshing = false
 
     func detect(resource: String) async {
-        guard availability == .unknown else { return }
+        guard availabilityByResource[resource] == nil else { return }
         guard let reply = await CompanionApprovalsMonitor.shared.fetch(path: Self.shopPath(resource)) else { return }
-        availability = CompanionActivityAvailability.from(status: reply.status)
+        let detected = CompanionActivityAvailability.from(status: reply.status)
+        availabilityByResource[resource] = detected
+        availability = detected
     }
 
     func start(resource: String) {
@@ -274,9 +278,11 @@ final class CompanionActivity: ObservableObject {
         refreshing = true
         defer { refreshing = false }
         guard let reply = await CompanionApprovalsMonitor.shared.fetch(path: Self.shopPath(resource)) else {
+            guard self.resource == resource else { return }
             state = .failed
             return
         }
+        guard self.resource == resource else { return }
         if reply.status == 404 {
             availability = .unavailable
             state = .idle
@@ -289,6 +295,7 @@ final class CompanionActivity: ObservableObject {
             return
         }
         availability = .available
+        availabilityByResource[resource] = .available
         var eventBodies: [String: String] = [:]
         if let data = reply.body.data(using: .utf8),
            let shop = try? JSONDecoder().decode(CompanionShopActivity.self, from: data) {
@@ -299,6 +306,7 @@ final class CompanionActivity: ObservableObject {
                 }
             }
         }
+        guard self.resource == resource else { return }
         switch CompanionActivityParser.parse(shopStatus: reply.status, shopBody: reply.body,
                                              eventBodies: eventBodies) {
         case .unavailable:
@@ -314,30 +322,38 @@ final class CompanionActivity: ObservableObject {
 
     func clearSummary(_ resource: String) {
         summaries[resource] = nil
+        summaryFetched[resource] = nil
     }
 
     func loadSummaries(resources: [String]) async {
-        for resource in resources where summaries[resource] == nil && !summaryLoading.contains(resource) {
+        for resource in resources where !summaryLoading.contains(resource) {
+            if let fetched = summaryFetched[resource],
+               Date().timeIntervalSince(fetched) < 60,
+               summaries[resource] != nil { continue }
             summaryLoading.insert(resource)
             guard let reply = await CompanionApprovalsMonitor.shared.fetch(path: Self.shopPath(resource)) else {
                 summaries[resource] = .failed
+                summaryFetched[resource] = nil
                 summaryLoading.remove(resource)
                 continue
             }
             if reply.status == 404 {
                 summaries[resource] = .unavailable
+                summaryFetched[resource] = Date()
                 summaryLoading.remove(resource)
                 continue
             }
             guard reply.status == 200, let data = reply.body.data(using: .utf8),
                   let shop = try? JSONDecoder().decode(CompanionShopActivity.self, from: data) else {
                 summaries[resource] = .failed
+                summaryFetched[resource] = nil
                 summaryLoading.remove(resource)
                 continue
             }
             summaries[resource] = .ready(
                 agents: shop.tabs.count,
                 working: shop.tabs.filter { $0.state == "working" }.count)
+            summaryFetched[resource] = Date()
             summaryLoading.remove(resource)
         }
     }

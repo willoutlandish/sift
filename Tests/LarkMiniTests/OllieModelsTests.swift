@@ -199,4 +199,16 @@ final class OllieModelsTests: XCTestCase {
         XCTAssertEqual((batch.body["items"] as? [[String: Any]])?.count, 2)
         XCTAssertEqual(batch.body["answer"] as? String, "approve")
     }
+
+    func testAllShopProgressWithNoElapsedMonthHasNoFakeTick() {
+        let totals = CompanionPaceTotals(
+            byCurrency: [CompanionPaceCurrencyTotal(currency: "USD", mtd: 100, goal: 1000)],
+            behind: 0, unavailableShops: 0, elapsedPct: nil)
+        let model = OllieTodayModel(pace: [:], paceState: .available, snapshot: nil,
+                                    activity: [:], totals: totals)
+        XCTAssertEqual(model.allProgress.first?.pace.expectedByToday, nil)
+        XCTAssertEqual(model.allProgress.first?.bar.expectedFraction, nil)
+        XCTAssertEqual(model.allProgress.first?.pill, .noData)
+    }
+
 }

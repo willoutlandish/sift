@@ -234,7 +234,8 @@ enum CompanionTodos {
     static let pageSize = 5
 
     static func make(from list: CompanionApprovalsList) -> CompanionTodoSnapshot {
-        let ranks = Dictionary(uniqueKeysWithValues: (list.order ?? []).enumerated().map { ($1, $0) })
+        let ranks = Dictionary((list.order ?? []).enumerated().map { ($1, $0) },
+                               uniquingKeysWith: { first, _ in first })
         var shops: [CompanionTodoShop] = []
         var collected = 0
 
@@ -382,8 +383,11 @@ enum CompanionDecisionOutcomeParser {
         case .answers:
             guard reply.status == 200,
                   let data = reply.body.data(using: .utf8),
-                  let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-                  let results = object["results"] as? [[String: Any]],
+                  let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+                let message = (try? JSONSerialization.jsonObject(with: Data(reply.body.utf8)) as? [String: Any])?["message"] as? String
+                return CompanionDecisionOutcome(message: message ?? "Couldn't save that decision.", remove: false)
+            }
+            guard let results = object["results"] as? [[String: Any]],
                   let result = results.first(where: { $0["id"] as? String == itemId }) else {
                 return CompanionDecisionOutcome(message: "Couldn't save that decision.", remove: false)
             }
@@ -418,9 +422,9 @@ enum CompanionDecisionOutcomeParser {
             return CompanionDecisionOutcome(message: "Couldn't save those decisions.", remove: false)
         }
         let failures = results.filter { ($0["status"] as? String) != "ok" }
-        if let first = failures.first {
-            let message = first["message"] as? String
-            return CompanionDecisionOutcome(message: message ?? "Couldn't save every decision.", remove: false)
+        if !failures.isEmpty {
+            let saved = results.filter { ($0["status"] as? String) == "ok" }.count
+            return CompanionDecisionOutcome(message: "\(saved) of \(itemIds.count) saved", remove: false)
         }
         let count = itemIds.count
         return CompanionDecisionOutcome(message: answer == "approve" ? "Approved \(count)" : "Declined \(count)",
@@ -470,7 +474,8 @@ struct CompanionApprovalsSeenStore {
     }
 
     func save(_ ids: Set<String>) {
-        guard let data = try? JSONEncoder().encode(ids.sorted()) else { return }
+        let capped = ids.sorted().suffix(2_000)
+        guard let data = try? JSONEncoder().encode(Array(capped)) else { return }
         try? data.write(to: url, options: [.atomic])
         try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
     }
@@ -540,14 +545,23 @@ final class CompanionApprovalsMonitor: NSObject, WKNavigationDelegate, Observabl
     func refresh() {
         pollTask?.cancel()
         pollTask = nil
-        guard baseURL != nil else {
+        guard let baseURL else {
             state = .signedOut
             return
         }
-        Task {
-            await refreshPaceNow()
-            await poll()
+        if webView == nil {
+            start(baseURL: baseURL)
+            return
         }
+        if let webView, !isOnBase(webView.url) {
+            webView.load(URLRequest(url: baseURL))
+        }
+        Task { await poll() }
+    }
+
+    func wake() {
+        failures = 0
+        refresh()
     }
 
     private func isOnBase(_ url: URL?) -> Bool {
@@ -605,7 +619,12 @@ final class CompanionApprovalsMonitor: NSObject, WKNavigationDelegate, Observabl
 
     func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
         failures += 1
+        let base = baseURL
         schedule(after: backoff)
+        DispatchQueue.main.asyncAfter(deadline: .now() + backoff) { [weak self] in
+            guard let self, let base, self.baseURL == base else { return }
+            self.webView?.load(URLRequest(url: base))
+        }
     }
 
     private var backoff: TimeInterval {
@@ -705,7 +724,7 @@ final class CompanionApprovalsMonitor: NSObject, WKNavigationDelegate, Observabl
         polling = true
         defer { polling = false }
         guard let reply = await fetch(path: "/api/oo/approvals") else {
-            state = .failed
+            if case .ready = state {} else { state = .failed }
             failures += 1
             schedule(after: backoff)
             return
@@ -723,7 +742,7 @@ final class CompanionApprovalsMonitor: NSObject, WKNavigationDelegate, Observabl
               reply.contentType.contains("application/json"),
               let data = reply.body.data(using: .utf8),
               let list = try? JSONDecoder().decode(CompanionApprovalsList.self, from: data) else {
-            state = .failed
+            if case .ready = state {} else { state = .failed }
             failures += 1
             schedule(after: backoff)
             return
@@ -740,9 +759,13 @@ final class CompanionApprovalsMonitor: NSObject, WKNavigationDelegate, Observabl
             for approval in CompanionApprovals.diff(current: approvals, seen: seen) {
                 await notify(approval)
             }
-            seenStore.save(seen.union(approvals.map(\.id)))
+            if Notifications.shared.enabled, Notifications.shared.access == .authorized {
+                seenStore.save(seen.union(approvals.map(\.id)))
+            }
         } else {
-            seenStore.save(Set(approvals.map(\.id)))
+            if Notifications.shared.enabled, Notifications.shared.access == .authorized {
+                seenStore.save(Set(approvals.map(\.id)))
+            }
             if snapshot.total > 0 {
                 await Notifications.shared.postApproval(
                     title: "\(snapshot.total) things waiting for your approval",
@@ -775,15 +798,14 @@ final class CompanionApprovalsMonitor: NSObject, WKNavigationDelegate, Observabl
         guard !paceRefreshing else { return }
         paceRefreshing = true
         defer { paceRefreshing = false }
-        paceState = .unknown
         guard let reply = await fetch(path: CompanionPace.path) else {
-            paceState = .failed
+            if pace.isEmpty { paceState = .failed }
             return
         }
         switch CompanionPaceState.from(status: reply.status) {
         case .available:
             guard let payload = CompanionPace.parse(reply.body) else {
-                paceState = .failed
+                if pace.isEmpty { paceState = .failed }
                 return
             }
             pace = payload.shops
@@ -794,7 +816,7 @@ final class CompanionApprovalsMonitor: NSObject, WKNavigationDelegate, Observabl
             paceTotals = nil
             paceState = .hidden
         case .failed, .unknown:
-            paceState = .failed
+            if pace.isEmpty { paceState = .failed }
         }
     }
 

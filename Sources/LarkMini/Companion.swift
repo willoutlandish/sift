@@ -352,6 +352,7 @@ final class CompanionProbeCoordinator {
     private var cached: (url: String, result: Result)?
     private var running = false
     private var waiters: [(Result) -> Void] = []
+    private var deadline: DispatchWorkItem?
 
     init(cookieCheck: @escaping CookieCheck, signInCheck: @escaping SignInCheck) {
         self.cookieCheck = cookieCheck
@@ -367,12 +368,25 @@ final class CompanionProbeCoordinator {
         waiters.append(completion)
         guard !running else { return }
         running = true
+        let deadline = DispatchWorkItem { [weak self] in
+            guard let self, self.running else { return }
+            self.running = false
+            let result = Result(signedIn: false, cookiePresent: false, checkedAt: Date())
+            self.cached = (key, result)
+            let waiters = self.waiters
+            self.waiters = []
+            waiters.forEach { $0(result) }
+        }
+        self.deadline = deadline
+        DispatchQueue.main.asyncAfter(deadline: .now() + Self.probeTimeout + 3, execute: deadline)
         cookieCheck(baseURL) { [weak self] cookiePresent in
             guard let self else { return }
             self.signInCheck(baseURL) { signedIn in
                 let result = Result(signedIn: signedIn, cookiePresent: cookiePresent, checkedAt: Date())
                 self.cached = (key, result)
                 self.running = false
+                self.deadline?.cancel()
+                self.deadline = nil
                 let waiters = self.waiters
                 self.waiters = []
                 waiters.forEach { $0(result) }
@@ -417,10 +431,6 @@ final class CompanionSignInProbe: NSObject, WKNavigationDelegate {
         timeout?.cancel()
         completion?(signedIn)
         completion = nil
-    }
-
-    func webView(_ webView: WKWebView, didCommit navigation: WKNavigation!) {
-        finish(signedIn: !Self.isSignIn(webView.url))
     }
 
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {

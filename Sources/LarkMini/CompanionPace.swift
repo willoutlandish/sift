@@ -207,11 +207,13 @@ enum CompanionPace {
     static func parse(_ body: String) -> CompanionPacePayload? {
         guard let data = body.data(using: .utf8),
               let list = try? JSONDecoder().decode(Portfolio.self, from: data) else { return nil }
-        let shops = Dictionary(uniqueKeysWithValues: list.shops.map { shop in
-            let gmv = shop.gmv
-            return (shop.resource, CompanionShopPace(
-                resource: shop.resource,
-                name: shop.name,
+        var shops: [String: CompanionShopPace] = [:]
+        for shop in list.shops {
+            guard let resource = shop.resource, let name = shop.name, let gmv = shop.gmv,
+                  !resource.isEmpty, !name.isEmpty else { continue }
+            let pace = CompanionShopPace(
+                resource: resource,
+                name: name,
                 currency: gmv.currency,
                 mtd: gmv.mtd,
                 goal: gmv.goal,
@@ -222,8 +224,11 @@ enum CompanionPace {
                 basis: gmv.basis,
                 metricsThrough: shop.metrics_through,
                 needsYouTotal: shop.needs_you?.total,
-                agents: (shop.agents ?? []).map { CompanionPaceAgent(role: $0.role, on: $0.on ?? false) }))
-        })
+                agents: (shop.agents ?? []).map {
+                    CompanionPaceAgent(role: $0.role ?? "agent", on: $0.on ?? false)
+                })
+            if shops[resource] == nil { shops[resource] = pace }
+        }
         let totals = list.totals.map { totals in
             CompanionPaceTotals(
                 byCurrency: (totals.gmv_by_currency ?? []).map {
@@ -253,10 +258,10 @@ enum CompanionPace {
                 let basis: String?
             }
             struct NeedsYou: Decodable { let total: Int? }
-            struct Agent: Decodable { let role: String; let on: Bool? }
-            let resource: String
-            let name: String
-            let gmv: GMV
+            struct Agent: Decodable { let role: String?; let on: Bool? }
+            let resource: String?
+            let name: String?
+            let gmv: GMV?
             let metrics_through: String?
             let needs_you: NeedsYou?
             let agents: [Agent]?
