@@ -14,12 +14,23 @@ final class Notifications: NSObject, ObservableObject, UNUserNotificationCenterD
     @Published var sound = UserDefaults.standard.bool(forKey: "notificationSound") {
         didSet { UserDefaults.standard.set(sound, forKey: "notificationSound") }
     }
+    enum Access: Equatable {
+        case unknown
+        case notDetermined
+        case denied
+        case authorized
+    }
+
+    @Published private(set) var access: Access = .unknown
     @Published private(set) var state = "Not checked"
     @Published private(set) var hint: String?
     @Published private(set) var testResult: String?
     var onOpen: ((String) -> Void)?
     private var submitted = UserDefaults.standard.stringArray(forKey: "notificationEvents") ?? []
-    private var approvalPermissionRequested = UserDefaults.standard.bool(forKey: "approvalPermissionRequested")
+
+    var needsNotificationPermission: Bool {
+        access == .notDetermined || access == .denied
+    }
 
     private var center: UNUserNotificationCenter? {
         guard Bundle.main.bundleIdentifier != nil else { return nil }
@@ -30,6 +41,7 @@ final class Notifications: NSObject, ObservableObject, UNUserNotificationCenterD
         guard let center else {
             state = "Unavailable"
             hint = "Open the Ollie app bundle to use macOS notifications."
+            access = .unknown
             return
         }
         center.delegate = self
@@ -41,11 +53,15 @@ final class Notifications: NSObject, ObservableObject, UNUserNotificationCenterD
         }
         hint = nil
         switch settings.authorizationStatus {
-        case .notDetermined: state = "Permission not requested"
+        case .notDetermined:
+            access = .notDetermined
+            state = "Permission not requested"
         case .denied:
+            access = .denied
             state = "Blocked by macOS"
             hint = "Allow Ollie in System Settings → Notifications. The edge dot still works."
         case .authorized, .provisional, .ephemeral:
+            access = .authorized
             state = settings.alertSetting == .enabled ? "Allowed by macOS" : "Banners off in macOS"
             if settings.alertSetting != .enabled {
                 hint = "Enable Ollie alerts in System Settings → Notifications. The edge dot still works."
@@ -53,6 +69,7 @@ final class Notifications: NSObject, ObservableObject, UNUserNotificationCenterD
                 hint = "Sound is off for Ollie in System Settings → Notifications."
             }
         @unknown default:
+            access = .denied
             state = "Unavailable"
             hint = "macOS notification permission could not be determined."
         }
@@ -86,12 +103,29 @@ final class Notifications: NSObject, ObservableObject, UNUserNotificationCenterD
         }
     }
 
+    func refreshAuthorization() async {
+        guard let center else { access = .unknown; return }
+        let settings = await center.notificationSettings()
+        switch settings.authorizationStatus {
+        case .notDetermined: access = .notDetermined
+        case .denied: access = .denied
+        case .authorized, .provisional, .ephemeral: access = .authorized
+        @unknown default: access = .denied
+        }
+    }
+
     func requestApprovalAuthorization() async {
-        guard let center, !approvalPermissionRequested else { return }
-        approvalPermissionRequested = true
-        UserDefaults.standard.set(true, forKey: "approvalPermissionRequested")
+        guard let center else { access = .unknown; return }
         center.delegate = self
+        await refreshAuthorization()
+        guard access == .notDetermined else { return }
         _ = try? await center.requestAuthorization(options: [.alert, .sound])
+        await refreshAuthorization()
+    }
+
+    func openNotificationSettings() {
+        guard let url = URL(string: "x-apple.systempreferences:com.apple.Notifications-Settings.extension") else { return }
+        NSWorkspace.shared.open(url)
     }
 
     func postBridge(title: String, body: String) async {
@@ -103,12 +137,16 @@ final class Notifications: NSObject, ObservableObject, UNUserNotificationCenterD
     }
 
     private func postDirect(title: String, body: String, id: String, destination: String) async {
-        guard let center else { return }
+        guard let center else {
+            print("Ollie: notification skipped (notifications unavailable)")
+            return
+        }
         let settings = await center.notificationSettings()
         switch settings.authorizationStatus {
         case .authorized, .provisional, .ephemeral:
             break
         default:
+            print("Ollie: notification skipped (notifications not authorized)")
             return
         }
         let content = UNMutableNotificationContent()

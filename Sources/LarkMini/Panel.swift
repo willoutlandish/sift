@@ -191,6 +191,7 @@ final class PanelController {
 
     func expand() {
         store.reloadState()
+        Task { await Notifications.shared.requestApprovalAuthorization() }
         transitionID += 1
         collapsePending = false
         if !store.isExpanded {
