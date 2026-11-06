@@ -12,6 +12,10 @@ final class FirstMouseHostingView<Content: View>: NSHostingView<Content> {
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 }
 
+final class FirstMouseContainerView: NSView {
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+}
+
 final class FloatingPanel: NSPanel {
     var onEscape: (() -> Void)?
     var onCollapsedTap: (() -> Void)?
@@ -32,6 +36,13 @@ final class FloatingPanel: NSPanel {
         super.mouseUp(with: event)
     }
 
+    override func sendEvent(_ event: NSEvent) {
+        // A nonactivating panel's first click otherwise only makes it key.
+        if event.type == .leftMouseDown, !isKeyWindow {
+            makeKey()
+        }
+        super.sendEvent(event)
+    }
 }
 
 /// Only the collapsed bubble needs a click target; the expanded panel uses
@@ -79,7 +90,7 @@ extension View {
 final class PanelController {
     let panel: FloatingPanel
     private let store: Store
-    private let container = NSView()
+    private let container = FirstMouseContainerView()
     private let bubbleClick = BubbleClickView()
     private let margin: CGFloat = 12
     private var transitionID = 0
