@@ -5,7 +5,21 @@ struct ChatListView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            PaneHeader(title: "Lark", subtitle: store.offline ? "Offline · showing saved chats" : "A little space for what needs you") {
+            HStack(spacing: 10) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Lark").font(.system(size: 20, weight: .semibold)).lineLimit(1)
+                    Text(store.offline ? "Offline · showing saved chats" : "A little space for what needs you")
+                        .font(.system(size: 11)).foregroundStyle(SiftStyle.secondary).lineLimit(1)
+                }
+                .panelDragHandle()
+                .help("Drag to move Ollie")
+                Button("Open Lark") { LarkLaunch.open() }
+                    .buttonStyle(.plain)
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(SiftStyle.green)
+                    .help("Open the Lark desktop app")
+                    .accessibilityLabel("Open Lark")
+                Spacer(minLength: 0)
                 if store.loadingChats {
                     ProgressView().controlSize(.small).frame(width: 32)
                 } else {
@@ -15,6 +29,8 @@ struct ChatListView: View {
                     }
                 }
             }
+            .padding(.horizontal, 16)
+            .frame(height: 76)
             HStack(spacing: 20) {
                 tab("Lark", all: false)
                 tab("All chats", all: true)
