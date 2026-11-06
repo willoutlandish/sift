@@ -286,21 +286,34 @@ final class CompanionTests: XCTestCase {
         XCTAssertEqual(CompanionPaceState.from(status: 500), .failed)
     }
 
-    func testPaceParsesControlRoomShopsFixture() throws {
+    func testPaceParsesPortfolioFixture() throws {
         let json = #"""
         {"as_of":"2026-11-06","month":{"start":"2026-11-01","day":6,"days_in_month":30,"elapsed_pct":20},
          "shops":[
-          {"resource":"north","name":"North Studio","gmv":{"mtd":5000,"currency":"GBP","goal":10000,
+          {"resource":"north","name":"North Studio","metrics_through":"2026-11-06",
+           "needs_you":{"total":3},
+           "agents":[{"role":"creator manager","on":true},{"role":"ads manager","on":false}],
+           "gmv":{"mtd":5000,"currency":"GBP","goal":10000,
             "expected_by_today":6000,"gap":-1000,"progress_pct":50,"pace_status":"behind","basis":"total"}}
-         ],"totals":{"shops":1,"behind":1,"gmv_by_currency":[]}}
+         ],"totals":{"shops":1,"behind":1,"gmv_unavailable_shops":0,
+           "gmv_by_currency":[{"currency":"GBP","mtd":5000,"goal":10000}]}}
         """#
         let parsed = try XCTUnwrap(CompanionPace.parse(json))
-        let north = try XCTUnwrap(parsed["north"])
+        let north = try XCTUnwrap(parsed.shops["north"])
         XCTAssertEqual(north.currency, "GBP")
         XCTAssertEqual(north.mtd, 5000)
         XCTAssertEqual(north.goal, 10000)
         XCTAssertEqual(north.expectedByToday, 6000)
         XCTAssertEqual(north.paceStatus, "behind")
+        XCTAssertEqual(north.metricsThrough, "2026-11-06")
+        XCTAssertEqual(north.needsYouTotal, 3)
+        XCTAssertEqual(north.agents.map(\.role), ["creator manager", "ads manager"])
+        XCTAssertEqual(parsed.metricsThrough, "2026-11-06")
+        XCTAssertEqual(parsed.totals?.elapsedPct, 20)
+        XCTAssertEqual(parsed.totals?.behind, 1)
+        XCTAssertEqual(parsed.totals?.unavailableShops, 0)
+        XCTAssertEqual(parsed.totals?.byCurrency.first?.currency, "GBP")
+        XCTAssertEqual(parsed.totals?.byCurrency.first?.goal, 10000)
     }
 
     func testApprovalDecisionBodiesMatchTheWeb() throws {

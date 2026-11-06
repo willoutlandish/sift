@@ -77,6 +77,36 @@ final class OllieModelsTests: XCTestCase {
         XCTAssertEqual(model.summary, "No sales data yet for 2 shops")
     }
 
+
+    func testAllShopProgressUsesPortfolioTotalsAndElapsedTick() {
+        let pace: [String: CompanionShopPace] = [
+            "a": CompanionShopPace(resource: "a", name: "A", currency: "USD",
+                                   mtd: 100, goal: 1000, expectedByToday: 300, gap: -700,
+                                   progressPct: 10, paceStatus: "behind", basis: "total",
+                                   metricsThrough: "2026-11-06")
+        ]
+        let totals = CompanionPaceTotals(
+            byCurrency: [
+                CompanionPaceCurrencyTotal(currency: "USD", mtd: 300, goal: 3000),
+                CompanionPaceCurrencyTotal(currency: "GBP", mtd: 50, goal: 100)
+            ],
+            behind: 1, unavailableShops: 0, elapsedPct: 20)
+        let model = OllieTodayModel(pace: pace, paceState: .available, snapshot: nil,
+                                    activity: [:], totals: totals)
+        XCTAssertEqual(model.allProgress.count, 2)
+        let usd = model.allProgress.first { $0.currency == "USD" }
+        XCTAssertEqual(usd?.pace.expectedByToday, 600)
+        XCTAssertEqual(usd?.pace.gap, -300)
+        XCTAssertEqual(usd?.bar.expectedFraction ?? 0, 0.2, accuracy: 0.0001)
+        XCTAssertEqual(usd?.pill, .behind("−$300"))
+        XCTAssertEqual(usd?.pace.metricsThrough, "2026-11-06")
+        let gbp = model.allProgress.first { $0.currency == "GBP" }
+        XCTAssertEqual(gbp?.pace.expectedByToday, 20)
+        XCTAssertEqual(gbp?.pill, .onTrack)
+        XCTAssertNotEqual(usd?.pace.mtd, 350, "currencies must never be added together")
+        XCTAssertEqual(CompanionPace.metricsText("2026-11-06"), "6 Nov")
+    }
+
     func testTodaySummaryOmitsUnavailableSources() {
         let pace: [String: CompanionShopPace] = [
             "one": CompanionShopPace(resource: "one", name: "One", currency: "USD",

@@ -488,6 +488,7 @@ final class CompanionApprovalsMonitor: NSObject, WKNavigationDelegate, Observabl
 
     @Published private(set) var state: CompanionTodosState = .loading
     @Published private(set) var pace: [String: CompanionShopPace] = [:]
+    @Published private(set) var paceTotals: CompanionPaceTotals?
     @Published private(set) var paceState: CompanionPaceState = .unknown
     private var webView: WKWebView?
     private var baseURL: URL?
@@ -525,6 +526,7 @@ final class CompanionApprovalsMonitor: NSObject, WKNavigationDelegate, Observabl
         paceRefreshing = false
         state = .loading
         pace = [:]
+        paceTotals = nil
         paceState = .unknown
         OllieBadge.setApprovals(0)
     }
@@ -700,14 +702,16 @@ final class CompanionApprovalsMonitor: NSObject, WKNavigationDelegate, Observabl
             return (0, paceState, [])
         }
         let state = CompanionPaceState.from(status: reply.status)
-        guard state == .available, let parsed = CompanionPace.parse(reply.body) else {
+        guard state == .available, let payload = CompanionPace.parse(reply.body) else {
             pace = [:]
+            paceTotals = nil
             paceState = state == .hidden ? .hidden : .failed
             return (reply.status, paceState, [])
         }
-        pace = parsed
+        pace = payload.shops
+        paceTotals = payload.totals
         paceState = .available
-        return (reply.status, .available, parsed.values.sorted { $0.name < $1.name })
+        return (reply.status, .available, payload.shops.values.sorted { $0.name < $1.name })
     }
 
     func refreshPaceNow() async {
@@ -721,14 +725,16 @@ final class CompanionApprovalsMonitor: NSObject, WKNavigationDelegate, Observabl
         }
         switch CompanionPaceState.from(status: reply.status) {
         case .available:
-            guard let parsed = CompanionPace.parse(reply.body) else {
+            guard let payload = CompanionPace.parse(reply.body) else {
                 paceState = .failed
                 return
             }
-            pace = parsed
+            pace = payload.shops
+            paceTotals = payload.totals
             paceState = .available
         case .hidden:
             pace = [:]
+            paceTotals = nil
             paceState = .hidden
         case .failed, .unknown:
             paceState = .failed

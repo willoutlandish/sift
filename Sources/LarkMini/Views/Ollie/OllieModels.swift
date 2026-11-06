@@ -58,6 +58,7 @@ struct OllieTodayShop: Identifiable, Equatable {
     var bar: CompanionPaceBarModel? { pace.map(CompanionPaceBarModel.init) }
 
     var pill: OlliePacePill? { OlliePacePill.make(pace) }
+    var portfolioWorking: Int? { pace?.agents.filter(\.on).count }
 
     var isPaceBehind: Bool { pace?.paceStatus == "behind" }
     var isOnTrack: Bool { pace?.paceStatus == "on_track" }
@@ -86,7 +87,8 @@ struct OllieTodayModel: Equatable {
     let allProgress: [OllieAllShopProgress]
 
     init(pace: [String: CompanionShopPace], paceState: CompanionPaceState,
-         snapshot: CompanionTodoSnapshot?, activity: [String: CompanionShopActivitySummary]) {
+         snapshot: CompanionTodoSnapshot?, activity: [String: CompanionShopActivitySummary],
+         totals: CompanionPaceTotals? = nil) {
         let paceAvailable = paceState == .available
         let approvalsAvailable = snapshot != nil
         var shops: [OllieTodayShop] = []
@@ -100,7 +102,7 @@ struct OllieTodayModel: Equatable {
                     resource: paceShop.resource,
                     name: paceShop.name,
                     pace: paceShop,
-                    pending: approvalsAvailable ? (approvalShop?.pending ?? 0) : nil,
+                    pending: approvalsAvailable ? (approvalShop?.pending ?? paceShop.needsYouTotal) : paceShop.needsYouTotal,
                     activity: activity[paceShop.resource]))
             }
         }
@@ -134,17 +136,26 @@ struct OllieTodayModel: Equatable {
                 if case .ready(_, let working) = summary { return working }
                 return nil
             }
-            return ready.isEmpty ? nil : ready.reduce(0, +)
+            if !ready.isEmpty { return ready.reduce(0, +) }
+            let agents = paceShops.flatMap(\.agents)
+            return agents.isEmpty ? nil : agents.filter(\.on).count
         }()
-        let needYou = snapshot?.total
+        let needYou = snapshot?.total ?? paceShops.compactMap(\.needsYouTotal).reduce(nil) { partial, value in
+            (partial ?? 0) + value
+        }
 
         var parts: [String] = []
-        if paceAvailable, !shops.isEmpty, !paceShops.contains(where: { $0.mtd != nil }) {
+        let unavailable = totals?.unavailableShops
+        if paceAvailable, !shops.isEmpty,
+           (unavailable.map { $0 >= shops.count } ?? !paceShops.contains(where: { $0.mtd != nil })) {
             let noun = shops.count == 1 ? "shop" : "shops"
             parts.append("No sales data yet for \(shops.count) \(noun)")
         } else if let onPace, let totalPace, let behind {
             parts.append("\(onPace) of \(totalPace) shops on pace")
-            parts.append("\(behind) behind")
+            parts.append("\(totals?.behind ?? behind) behind")
+            if let unavailable, unavailable > 0 {
+                parts.append("\(unavailable) without sales data")
+            }
         }
         if let working { parts.append("\(working) agents working") }
         if let needYou { parts.append("\(needYou) need you") }
@@ -157,10 +168,43 @@ struct OllieTodayModel: Equatable {
         self.working = working
         self.needYou = needYou
         self.paceAvailable = paceAvailable
-        self.allProgress = paceAvailable ? Self.allShopProgress(from: Array(pace.values)) : []
+        self.allProgress = paceAvailable ? Self.allShopProgress(
+            from: Array(pace.values), totals: totals,
+            metricsThrough: pace.values.compactMap(\.metricsThrough).first) : []
     }
 
-    private static func allShopProgress(from shops: [CompanionShopPace]) -> [OllieAllShopProgress] {
+    private static func allShopProgress(from shops: [CompanionShopPace],
+                                        totals: CompanionPaceTotals?,
+                                        metricsThrough: String?) -> [OllieAllShopProgress] {
+        if let totals, !totals.byCurrency.isEmpty {
+            return totals.byCurrency.map { total in
+                // Portfolio totals omit expected_by_today; the tick is the month's elapsed percentage of goal.
+                let expected = (total.goal ?? 0) > 0
+                    ? total.goal! * ((totals.elapsedPct ?? 0) / 100) : nil
+                let gap = (total.mtd != nil && expected != nil) ? total.mtd! - expected! : nil
+                let progress = (total.mtd != nil && (total.goal ?? 0) > 0)
+                    ? total.mtd! / total.goal! * 100 : nil
+                let status: String
+                if total.goal == nil || (total.goal ?? 0) <= 0 {
+                    status = "no_target"
+                } else if total.mtd == nil || expected == nil {
+                    status = "no_data"
+                } else if let gap, gap < 0 {
+                    status = "behind"
+                } else if total.mtd! >= total.goal! {
+                    status = "ahead"
+                } else {
+                    status = "on_track"
+                }
+                return OllieAllShopProgress(
+                    currency: total.currency,
+                    pace: CompanionShopPace(resource: "all-\(total.currency ?? "none")", name: "All shops",
+                                            currency: total.currency, mtd: total.mtd, goal: total.goal,
+                                            expectedByToday: expected, gap: gap,
+                                            progressPct: progress, paceStatus: status, basis: "total",
+                                            metricsThrough: metricsThrough))
+            }.sorted { ($0.currency ?? "") < ($1.currency ?? "") }
+        }
         let grouped = Dictionary(grouping: shops, by: \.currency)
         return grouped.map { currency, group in
             let mtd = group.compactMap(\.mtd)

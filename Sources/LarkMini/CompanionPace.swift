@@ -1,5 +1,10 @@
 import Foundation
 
+struct CompanionPaceAgent: Equatable {
+    let role: String
+    let on: Bool
+}
+
 struct CompanionShopPace: Equatable {
     let resource: String
     let name: String
@@ -11,6 +16,47 @@ struct CompanionShopPace: Equatable {
     let progressPct: Double?
     let paceStatus: String
     let basis: String?
+    let metricsThrough: String?
+    let needsYouTotal: Int?
+    let agents: [CompanionPaceAgent]
+
+    init(resource: String, name: String, currency: String?, mtd: Double?, goal: Double?,
+         expectedByToday: Double?, gap: Double?, progressPct: Double?, paceStatus: String,
+         basis: String?, metricsThrough: String? = nil, needsYouTotal: Int? = nil,
+         agents: [CompanionPaceAgent] = []) {
+        self.resource = resource
+        self.name = name
+        self.currency = currency
+        self.mtd = mtd
+        self.goal = goal
+        self.expectedByToday = expectedByToday
+        self.gap = gap
+        self.progressPct = progressPct
+        self.paceStatus = paceStatus
+        self.basis = basis
+        self.metricsThrough = metricsThrough
+        self.needsYouTotal = needsYouTotal
+        self.agents = agents
+    }
+}
+
+struct CompanionPaceCurrencyTotal: Equatable {
+    let currency: String?
+    let mtd: Double?
+    let goal: Double?
+}
+
+struct CompanionPaceTotals: Equatable {
+    let byCurrency: [CompanionPaceCurrencyTotal]
+    let behind: Int?
+    let unavailableShops: Int?
+    let elapsedPct: Double?
+}
+
+struct CompanionPacePayload: Equatable {
+    let shops: [String: CompanionShopPace]
+    let totals: CompanionPaceTotals?
+    let metricsThrough: String?
 }
 
 enum CompanionPaceState: Equatable {
@@ -105,7 +151,7 @@ struct CompanionPaceBarModel: Equatable {
 }
 
 enum CompanionPace {
-    static let path = "/api/oo/control-room/shops"
+    static let path = "/api/oo/portfolio"
 
     static func matches(shopResource: String, shopName: String, pace: CompanionShopPace) -> Bool {
         shopResource.caseInsensitiveCompare(pace.resource) == .orderedSame || shopName == pace.name
@@ -137,6 +183,18 @@ enum CompanionPace {
         return formatter.string(from: NSNumber(value: value)) ?? String(Int(value.rounded()))
     }
 
+    static func metricsText(_ value: String?) -> String? {
+        guard let value, !value.isEmpty else { return nil }
+        let parser = DateFormatter()
+        parser.locale = Locale(identifier: "en_US_POSIX")
+        parser.dateFormat = "yyyy-MM-dd"
+        guard let date = parser.date(from: value) else { return value }
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_GB")
+        formatter.dateFormat = "d MMM"
+        return formatter.string(from: date)
+    }
+
     static func currencySymbol(_ currency: String?) -> String {
         guard let currency else { return "" }
         let formatter = NumberFormatter()
@@ -146,10 +204,10 @@ enum CompanionPace {
         return formatter.currencySymbol ?? ""
     }
 
-    static func parse(_ body: String) -> [String: CompanionShopPace]? {
+    static func parse(_ body: String) -> CompanionPacePayload? {
         guard let data = body.data(using: .utf8),
-              let list = try? JSONDecoder().decode(PaceList.self, from: data) else { return nil }
-        return Dictionary(uniqueKeysWithValues: list.shops.map { shop in
+              let list = try? JSONDecoder().decode(Portfolio.self, from: data) else { return nil }
+        let shops = Dictionary(uniqueKeysWithValues: list.shops.map { shop in
             let gmv = shop.gmv
             return (shop.resource, CompanionShopPace(
                 resource: shop.resource,
@@ -161,11 +219,28 @@ enum CompanionPace {
                 gap: gmv.gap,
                 progressPct: gmv.progress_pct,
                 paceStatus: gmv.pace_status ?? "no_data",
-                basis: gmv.basis))
+                basis: gmv.basis,
+                metricsThrough: shop.metrics_through,
+                needsYouTotal: shop.needs_you?.total,
+                agents: (shop.agents ?? []).map { CompanionPaceAgent(role: $0.role, on: $0.on ?? false) }))
         })
+        let totals = list.totals.map { totals in
+            CompanionPaceTotals(
+                byCurrency: (totals.gmv_by_currency ?? []).map {
+                    CompanionPaceCurrencyTotal(currency: $0.currency, mtd: $0.mtd, goal: $0.goal)
+                },
+                behind: totals.behind,
+                unavailableShops: totals.gmv_unavailable_shops,
+                elapsedPct: list.month?.elapsed_pct)
+        }
+        let metricsThrough = list.shops.compactMap(\.metrics_through).first
+        return CompanionPacePayload(shops: shops, totals: totals, metricsThrough: metricsThrough)
     }
 
-    private struct PaceList: Decodable {
+    private struct Portfolio: Decodable {
+        struct Month: Decodable {
+            let elapsed_pct: Double?
+        }
         struct Shop: Decodable {
             struct GMV: Decodable {
                 let mtd: Double?
@@ -177,10 +252,27 @@ enum CompanionPace {
                 let pace_status: String?
                 let basis: String?
             }
+            struct NeedsYou: Decodable { let total: Int? }
+            struct Agent: Decodable { let role: String; let on: Bool? }
             let resource: String
             let name: String
             let gmv: GMV
+            let metrics_through: String?
+            let needs_you: NeedsYou?
+            let agents: [Agent]?
+        }
+        struct CurrencyTotal: Decodable {
+            let currency: String?
+            let mtd: Double?
+            let goal: Double?
+        }
+        struct Totals: Decodable {
+            let gmv_by_currency: [CurrencyTotal]?
+            let behind: Int?
+            let gmv_unavailable_shops: Int?
         }
         let shops: [Shop]
+        let totals: Totals?
+        let month: Month?
     }
 }

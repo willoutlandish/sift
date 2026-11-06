@@ -37,7 +37,8 @@ struct OllieTodayView: View {
 
     private var model: OllieTodayModel {
         OllieTodayModel(pace: monitor.pace, paceState: monitor.paceState,
-                        snapshot: snapshot, activity: activity.summaries)
+                        snapshot: snapshot, activity: activity.summaries,
+                        totals: monitor.paceTotals)
     }
 
     private var header: some View {
@@ -186,6 +187,9 @@ struct OllieTodayView: View {
                     case .unavailable:
                         EmptyView()
                     }
+                } else if let working = shop.portfolioWorking, working > 0 {
+                    actionButton(title: "Activity", value: "\(working) ›",
+                                 valueColor: OllieStyle.blue, spinner: true) { onActivity(shop) }
                 } else if shop.activity == nil {
                     actionButton(title: "Activity", value: "›", valueColor: OllieStyle.dim) { onActivity(shop) }
                 }
@@ -231,6 +235,11 @@ struct OllieTodayView: View {
             }
             .font(.system(size: 11.5)).foregroundStyle(OllieStyle.dim)
             .padding(.top, 4)
+            if let through = CompanionPace.metricsText(progress.pace.metricsThrough) {
+                Text("numbers to \(through)")
+                    .font(.system(size: 10.5)).foregroundStyle(OllieStyle.muted)
+                    .padding(.top, 2)
+            }
         }
         .padding(11)
         .background(OllieStyle.card, in: RoundedRectangle(cornerRadius: OllieStyle.cardRadius))
