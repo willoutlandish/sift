@@ -8,6 +8,8 @@ final class CompanionWindowController: NSWindowController, WKNavigationDelegate,
     private let webView: WKWebView
     private var policy: CompanionNavigationPolicy?
     private var baseURL: URL?
+    private var windowObservers: [NSObjectProtocol] = []
+    private var lastTitlebarDoubleClick = Date.distantPast
 
     private init() {
         let configuration = WKWebViewConfiguration()
@@ -19,11 +21,15 @@ final class CompanionWindowController: NSWindowController, WKNavigationDelegate,
 
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 980, height: 720),
-            styleMask: [.titled, .closable, .miniaturizable, .resizable],
+            styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
             backing: .buffered,
             defer: false
         )
         window.title = AppIdentity.displayName
+        window.titlebarAppearsTransparent = true
+        window.titleVisibility = .hidden
+        window.toolbar = nil
+        window.titlebarSeparatorStyle = .none
         window.minSize = NSSize(width: 480, height: 360)
         window.contentView = webView
         window.isReleasedWhenClosed = false
@@ -37,6 +43,71 @@ final class CompanionWindowController: NSWindowController, WKNavigationDelegate,
         webView.uiDelegate = self
         webView.configuration.userContentController.addScriptMessageHandler(
             self, contentWorld: .page, name: "ollie")
+        positionTrafficLights()
+        windowObservers = [
+            NotificationCenter.default.addObserver(forName: NSWindow.didResizeNotification,
+                                                   object: window, queue: .main) { [weak self] _ in
+                MainActor.assumeIsolated { self?.positionTrafficLights() }
+            },
+            NotificationCenter.default.addObserver(forName: NSWindow.didExitFullScreenNotification,
+                                                   object: window, queue: .main) { [weak self] _ in
+                MainActor.assumeIsolated {
+                    DispatchQueue.main.async { self?.positionTrafficLights() }
+                }
+            },
+            NotificationCenter.default.addObserver(forName: NSWindow.didEnterFullScreenNotification,
+                                                   object: window, queue: .main) { [weak self] _ in
+                MainActor.assumeIsolated {
+                    DispatchQueue.main.async { self?.positionTrafficLights() }
+                }
+            }
+        ]
+    }
+
+    private func positionTrafficLights() {
+        guard let window,
+              let close = window.standardWindowButton(.closeButton),
+              let mini = window.standardWindowButton(.miniaturizeButton),
+              let zoom = window.standardWindowButton(.zoomButton),
+              let titlebar = close.superview else { return }
+        let size = close.frame.size
+        let y = titlebar.bounds.height - 18 - size.height
+        let gap: CGFloat = 6
+        close.setFrameOrigin(NSPoint(x: 20, y: y))
+        mini.setFrameOrigin(NSPoint(x: 20 + size.width + gap, y: y))
+        zoom.setFrameOrigin(NSPoint(x: 20 + 2 * (size.width + gap), y: y))
+    }
+
+    private func performWindowDrag() {
+        guard let window else { return }
+        let location = window.mouseLocationOutsideOfEventStream
+        let event = NSApp.currentEvent?.type == .leftMouseDown ? NSApp.currentEvent : NSEvent.mouseEvent(
+            with: .leftMouseDown,
+            location: location,
+            modifierFlags: [],
+            timestamp: ProcessInfo.processInfo.systemUptime,
+            windowNumber: window.windowNumber,
+            context: nil,
+            eventNumber: 0,
+            clickCount: 1,
+            pressure: 1)
+        guard let event else { return }
+        window.performDrag(with: event)
+    }
+
+    private func performTitlebarDoubleClick() {
+        guard let window else { return }
+        let now = Date()
+        guard now.timeIntervalSince(lastTitlebarDoubleClick) > 0.35 else { return }
+        lastTitlebarDoubleClick = now
+        switch UserDefaults.standard.string(forKey: "AppleActionOnDoubleClick") ?? "Maximize" {
+        case "Minimize":
+            window.miniaturize(nil)
+        case "None":
+            break
+        default:
+            window.zoom(nil)
+        }
     }
 
     required init?(coder: NSCoder) {
@@ -75,8 +146,9 @@ final class CompanionWindowController: NSWindowController, WKNavigationDelegate,
           const call = (method) => (...args) => handler.postMessage({ method, args });
           window.companion = Object.freeze({
             shell: Object.freeze({
-              kind: 'desktop',
-              platform: 'darwin',
+              kind: "\(CompanionBridge.shell.kind)",
+              platform: "\(CompanionBridge.shell.platform)",
+              titleBar: "\(CompanionBridge.shell.titleBar)",
               openExternal: call('openExternal')
             }),
             setBadge: call('setBadge'),
@@ -90,9 +162,44 @@ final class CompanionWindowController: NSWindowController, WKNavigationDelegate,
           });
         })();
         """
+        let dragSource = """
+        (function () {
+          const appOrigin = "\(escaped)";
+          if (window.top !== window || location.origin !== appOrigin) return;
+          const handler = window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.ollie;
+          if (!handler) return;
+          const interactive = "button, a, input, select, textarea, [role='menu'], [role='menuitem'], [role='dialog'], [contenteditable]";
+          const isInteractive = (target) => !!(target && target.closest && target.closest(interactive));
+          const inTitleBar = (event) => event.clientY >= 0 && event.clientY <= 52;
+          document.addEventListener('mousedown', function (event) {
+            if (event.button !== 0 || !inTitleBar(event) || isInteractive(event.target)) return;
+            if (event.detail === 2) handler.postMessage({ method: 'titlebarDoubleClick', args: [] });
+            else handler.postMessage({ method: 'drag', args: [] });
+            event.preventDefault();
+            event.stopPropagation();
+          }, true);
+          document.addEventListener('dblclick', function (event) {
+            if (!inTitleBar(event) || isInteractive(event.target)) return;
+            handler.postMessage({ method: 'titlebarDoubleClick', args: [] });
+            event.preventDefault();
+            event.stopPropagation();
+          }, true);
+          if (location.pathname !== '/companion/app' && !location.pathname.startsWith('/companion/app/')) {
+            const apply = function () {
+              if (!document.documentElement) return;
+              document.documentElement.style.setProperty('transform', 'translateY(28px)', 'important');
+              document.documentElement.style.setProperty('height', 'calc(100% - 28px)', 'important');
+            };
+            apply();
+            if (!document.documentElement) document.addEventListener('DOMContentLoaded', apply, { once: true });
+          }
+        })();
+        """
         let controller = webView.configuration.userContentController
         controller.removeAllUserScripts()
         controller.addUserScript(WKUserScript(source: source, injectionTime: .atDocumentStart,
+                                              forMainFrameOnly: true))
+        controller.addUserScript(WKUserScript(source: dragSource, injectionTime: .atDocumentStart,
                                               forMainFrameOnly: true))
     }
 
@@ -101,7 +208,6 @@ final class CompanionWindowController: NSWindowController, WKNavigationDelegate,
                                replyHandler: @escaping (Any?, String?) -> Void) {
         guard message.frameInfo.isMainFrame,
               let baseURL,
-              CompanionBridge.allowedPage(message.webView?.url ?? message.frameInfo.request.url, base: baseURL),
               CompanionConfig.originMatches(
                 scheme: message.frameInfo.securityOrigin.`protocol`,
                 host: message.frameInfo.securityOrigin.host,
@@ -113,20 +219,36 @@ final class CompanionWindowController: NSWindowController, WKNavigationDelegate,
             replyHandler(nil, "Invalid Companion bridge call")
             return
         }
-        switch CompanionBridge.validate(method: method, arguments: arguments) {
-        case .setBadge(let count):
-            OllieBadge.setUnread(count)
+        let call = CompanionBridge.validate(method: method, arguments: arguments)
+        switch call {
+        case .drag:
+            performWindowDrag()
             replyHandler(true, nil)
-        case .notify(let title, let body):
-            Task { await Notifications.shared.postBridge(title: title, body: body) }
-            replyHandler(true, nil)
-        case .openExternal(let url):
-            NSWorkspace.shared.open(url)
+        case .titlebarDoubleClick:
+            performTitlebarDoubleClick()
             replyHandler(true, nil)
         case .unsupported:
             replyHandler(nil, "Unsupported Companion method")
         case .invalid:
             replyHandler(nil, "Invalid Companion bridge arguments")
+        case .setBadge, .notify, .openExternal:
+            guard CompanionBridge.allowedPage(message.webView?.url ?? message.frameInfo.request.url, base: baseURL) else {
+                replyHandler(nil, "Invalid Companion bridge call")
+                return
+            }
+            switch call {
+            case .setBadge(let count):
+                OllieBadge.setUnread(count)
+                replyHandler(true, nil)
+            case .notify(let title, let body):
+                Task { await Notifications.shared.postBridge(title: title, body: body) }
+                replyHandler(true, nil)
+            case .openExternal(let url):
+                NSWorkspace.shared.open(url)
+                replyHandler(true, nil)
+            default:
+                replyHandler(nil, "Invalid Companion bridge call")
+            }
         }
     }
 

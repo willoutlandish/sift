@@ -63,11 +63,35 @@ enum CompanionConfig {
     }
 }
 
+struct CompanionBridgeShell: Equatable {
+    let kind: String
+    let platform: String
+    let titleBar: String
+
+    static let darwinInset = CompanionBridgeShell(kind: "desktop", platform: "darwin", titleBar: "hidden-inset")
+}
+
+enum CompanionDragHitTest {
+    static let titleBarHeight: CGFloat = 52
+
+    static func shouldDrag(button: Int, y: CGFloat, interactive: Bool) -> Bool {
+        button == 0 && y >= 0 && y <= titleBarHeight && !interactive
+    }
+
+    static func shouldDoubleClick(y: CGFloat, interactive: Bool) -> Bool {
+        y >= 0 && y <= titleBarHeight && !interactive
+    }
+}
+
 enum CompanionBridge {
+    static let shell = CompanionBridgeShell.darwinInset
+
     enum Call: Equatable {
         case setBadge(Int)
         case notify(String, String)
         case openExternal(URL)
+        case drag
+        case titlebarDoubleClick
         case unsupported
         case invalid
     }
@@ -100,6 +124,10 @@ enum CompanionBridge {
                   let url = URL(string: raw), url.scheme?.lowercased() == "https",
                   url.user == nil, url.password == nil else { return .invalid }
             return .openExternal(url)
+        case "drag":
+            return arguments.isEmpty ? .drag : .invalid
+        case "titlebarDoubleClick":
+            return arguments.isEmpty ? .titlebarDoubleClick : .invalid
         case "openSpace", "showSpace", "hideSpace", "closeSpace", "navigate":
             return .unsupported
         default:

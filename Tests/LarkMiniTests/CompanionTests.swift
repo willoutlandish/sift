@@ -132,6 +132,28 @@ final class CompanionTests: XCTestCase {
                                                   topURL: URL(string: "https://api.workos.com/login")!), .deny)
     }
 
+
+    func testTitlebarDragHitTest() {
+        XCTAssertTrue(CompanionDragHitTest.shouldDrag(button: 0, y: 0, interactive: false))
+        XCTAssertTrue(CompanionDragHitTest.shouldDrag(button: 0, y: 52, interactive: false))
+        XCTAssertFalse(CompanionDragHitTest.shouldDrag(button: 0, y: 53, interactive: false))
+        XCTAssertFalse(CompanionDragHitTest.shouldDrag(button: 1, y: 18, interactive: false))
+        XCTAssertFalse(CompanionDragHitTest.shouldDrag(button: 0, y: 18, interactive: true))
+        XCTAssertTrue(CompanionDragHitTest.shouldDoubleClick(y: 18, interactive: false))
+        XCTAssertFalse(CompanionDragHitTest.shouldDoubleClick(y: 18, interactive: true))
+        XCTAssertFalse(CompanionDragHitTest.shouldDoubleClick(y: 53, interactive: false))
+    }
+
+    func testBridgeShellUsesHiddenInsetTitleBar() {
+        XCTAssertEqual(CompanionBridge.shell.kind, "desktop")
+        XCTAssertEqual(CompanionBridge.shell.platform, "darwin")
+        XCTAssertEqual(CompanionBridge.shell.titleBar, "hidden-inset")
+        XCTAssertEqual(CompanionBridge.validate(method: "drag", arguments: []), .drag)
+        XCTAssertEqual(CompanionBridge.validate(method: "titlebarDoubleClick", arguments: []),
+                       .titlebarDoubleClick)
+        XCTAssertEqual(CompanionBridge.validate(method: "drag", arguments: ["x"]), .invalid)
+    }
+
     func testBridgeValidatesArgumentsAndOrigins() {
         let base = URL(string: "http://100.113.131.96:8090")!
         XCTAssertTrue(CompanionBridge.allowedPage(URL(string: "http://100.113.131.96:8090/companion/app/abc")!, base: base))
