@@ -6,6 +6,7 @@ final class CompanionWindowController: NSWindowController, WKNavigationDelegate,
     static let shared = CompanionWindowController()
 
     private let webView: WKWebView
+    private let userContentController: WKUserContentController
     private var policy: CompanionNavigationPolicy?
     private var baseURL: URL?
     private var windowObservers: [NSObjectProtocol] = []
@@ -14,7 +15,8 @@ final class CompanionWindowController: NSWindowController, WKNavigationDelegate,
     private init() {
         let configuration = WKWebViewConfiguration()
         configuration.websiteDataStore = .default()
-        configuration.userContentController = WKUserContentController()
+        let contentController = WKUserContentController()
+        configuration.userContentController = contentController
         let webView = WKWebView(frame: .zero, configuration: configuration)
         webView.allowsMagnification = true
         webView.autoresizingMask = [.width, .height]
@@ -37,12 +39,12 @@ final class CompanionWindowController: NSWindowController, WKNavigationDelegate,
         window.center()
 
         self.webView = webView
+        self.userContentController = contentController
         super.init(window: window)
 
         webView.navigationDelegate = self
         webView.uiDelegate = self
-        webView.configuration.userContentController.addScriptMessageHandler(
-            self, contentWorld: .page, name: "ollie")
+        contentController.addScriptMessageHandler(self, contentWorld: .page, name: "ollie")
         positionTrafficLights()
         windowObservers = [
             NotificationCenter.default.addObserver(forName: NSWindow.didResizeNotification,
@@ -76,6 +78,20 @@ final class CompanionWindowController: NSWindowController, WKNavigationDelegate,
         close.setFrameOrigin(NSPoint(x: 20, y: y))
         mini.setFrameOrigin(NSPoint(x: 20 + size.width + gap, y: y))
         zoom.setFrameOrigin(NSPoint(x: 20 + 2 * (size.width + gap), y: y))
+        updateLightsInset()
+    }
+
+    private func lightsRightEdge() -> CGFloat? {
+        guard let window, let zoom = window.standardWindowButton(.zoomButton), let content = window.contentView else {
+            return nil
+        }
+        return content.convert(zoom.bounds, from: zoom).maxX
+    }
+
+    private func updateLightsInset() {
+        guard let right = lightsRightEdge() else { return }
+        let script = "document.documentElement.style.setProperty('--ollie-lights-right', '\(String(format: "%.2f", right))px');"
+        webView.evaluateJavaScript(script, completionHandler: nil)
     }
 
     private func performWindowDrag() {
@@ -136,6 +152,7 @@ final class CompanionWindowController: NSWindowController, WKNavigationDelegate,
         let escaped = origin
             .replacingOccurrences(of: "\\", with: "\\\\")
             .replacingOccurrences(of: "\"", with: "\\\"")
+        let lightsRight = lightsRightEdge().map { String(format: "%.2f", $0) }
         let source = """
         (function () {
           const appOrigin = "\(escaped)";
@@ -160,6 +177,33 @@ final class CompanionWindowController: NSWindowController, WKNavigationDelegate,
             closeSpace: call('closeSpace'),
             navigate: call('navigate')
           });
+          const lightsRight = "\(lightsRight ?? "")";
+          const ensureInset = function () {
+            if (document.documentElement && lightsRight) {
+              document.documentElement.style.setProperty('--ollie-lights-right', lightsRight + 'px');
+            }
+            const root = document.querySelector('.c1-v4');
+            if (root && !root.classList.contains('c1-desktop-inset')) {
+              root.classList.add('c1-desktop-inset');
+            }
+            let style = document.getElementById('ollie-desktop-inset');
+            if (!style) {
+              style = document.createElement('style');
+              style.id = 'ollie-desktop-inset';
+              style.textContent = [
+                '.c1-rail { padding-top: 52px !important; }',
+                '@media (min-width: 751px) {',
+                '  .c1-desktop-inset .c1-rail { width: calc(var(--ollie-lights-right) + 12px) !important; align-items: center !important; }',
+                '  .c1-desktop-inset .c1-rail .c1-rail-pages,',
+                '  .c1-desktop-inset .c1-rail .c1-rail-low { align-items: center !important; }',
+                '}'
+              ].join(' ');
+              (document.head || document.documentElement).appendChild(style);
+            }
+          };
+          ensureInset();
+          new MutationObserver(ensureInset).observe(document.documentElement,
+            { childList: true, subtree: true });
         })();
         """
         let dragSource = """
@@ -195,12 +239,15 @@ final class CompanionWindowController: NSWindowController, WKNavigationDelegate,
           }
         })();
         """
-        let controller = webView.configuration.userContentController
-        controller.removeAllUserScripts()
-        controller.addUserScript(WKUserScript(source: source, injectionTime: .atDocumentStart,
-                                              forMainFrameOnly: true))
-        controller.addUserScript(WKUserScript(source: dragSource, injectionTime: .atDocumentStart,
-                                              forMainFrameOnly: true))
+        userContentController.removeAllUserScripts()
+        userContentController.addUserScript(WKUserScript(source: source, injectionTime: .atDocumentStart,
+                                                         forMainFrameOnly: true))
+        userContentController.addUserScript(WKUserScript(source: dragSource, injectionTime: .atDocumentStart,
+                                                         forMainFrameOnly: true))
+    }
+
+    func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+        updateLightsInset()
     }
 
     func userContentController(_ userContentController: WKUserContentController,
