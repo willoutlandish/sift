@@ -5,10 +5,11 @@ struct ShellView: View {
     @EnvironmentObject var store: Store
 
     var body: some View {
-        HStack(spacing: 0) {
+        HStack(alignment: .top, spacing: 0) {
             RailView()
             Rectangle().fill(SiftStyle.line).frame(width: 1)
             content
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         }
     }
 

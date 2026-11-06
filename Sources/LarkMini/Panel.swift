@@ -86,6 +86,13 @@ extension View {
     func panelDragHandle() -> some View { modifier(PanelDragHandle()) }
 }
 
+struct PanelContentHeightKey: PreferenceKey {
+    static var defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = max(value, nextValue())
+    }
+}
+
 @MainActor
 final class PanelController {
     let panel: FloatingPanel
@@ -96,6 +103,7 @@ final class PanelController {
     private var transitionID = 0
     private var collapsePending = false
     private var anchorToMenuBar = false
+    private var measuredContentHeight: CGFloat?
     var menuBarAnchor: (() -> NSRect?)?
 
     init(store: Store) {
@@ -172,6 +180,15 @@ final class PanelController {
         }
         NotificationCenter.default.addObserver(forName: NSApplication.didChangeScreenParametersNotification, object: nil, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated { self?.layout() }
+        }
+        NotificationCenter.default.addObserver(forName: .panelContentHeightChanged, object: nil, queue: .main) { [weak self] note in
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                let height = note.object as? CGFloat ?? 0
+                self.measuredContentHeight = height > 0 ? height : nil
+                guard self.store.isExpanded, self.anchorToMenuBar else { return }
+                self.layout()
+            }
         }
         NotificationCenter.default.addObserver(forName: NSWindow.didBecomeKeyNotification, object: panel, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated { self?.store.markControlRead() }
@@ -279,8 +296,13 @@ final class PanelController {
         guard let visible = targetScreen?.visibleFrame else { return }
         let rect: NSRect
         if store.isExpanded {
+            var height = min(560, visible.height - margin * 2 - 40)
+            if anchorToMenuBar, let measuredContentHeight {
+                height = PanelGeometry.menuBarHeight(contentHeight: measuredContentHeight,
+                                                     visibleHeight: visible.height)
+            }
             let size = NSSize(width: CGFloat(Settings.validWidth(store.settings.panelWidth)),
-                              height: min(560, visible.height - margin * 2 - 40))
+                              height: height)
             if let anchor {
                 rect = PanelGeometry.underStatusItem(size: size, anchor: anchor, in: visible, margin: margin)
             } else {
@@ -340,6 +362,14 @@ enum PanelGeometry {
         NSRect(x: visible.maxX - margin - size.width,
                y: visible.midY - size.height / 2,
                width: size.width, height: size.height)
+    }
+
+    static func menuBarHeight(contentHeight: CGFloat, visibleHeight: CGFloat) -> CGFloat {
+        let maxHeight = min(760, visibleHeight * 0.8)
+        if contentHeight < 400 {
+            return min(max(contentHeight, 360), maxHeight)
+        }
+        return min(maxHeight, max(560, contentHeight))
     }
 
     static func underStatusItem(size: NSSize, anchor: NSRect, in visible: NSRect, margin: CGFloat) -> NSRect {

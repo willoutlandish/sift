@@ -11,7 +11,7 @@ struct OllieTodoView: View {
     }
 
     var body: some View {
-        ZStack {
+        ZStack(alignment: .top) {
             OllieStyle.bg.ignoresSafeArea()
             switch screen {
             case .today:

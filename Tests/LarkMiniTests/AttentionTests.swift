@@ -94,4 +94,12 @@ final class PanelPositionTests: XCTestCase {
         XCTAssertEqual(clamped, NSRect(x: 88, y: 12, width: 400, height: 276))
     }
 
+
+    func testMenuBarPanelFitsContentUpToTheVisibleMaximum() {
+        XCTAssertEqual(PanelGeometry.menuBarHeight(contentHeight: 220, visibleHeight: 992), 360)
+        XCTAssertEqual(PanelGeometry.menuBarHeight(contentHeight: 600, visibleHeight: 992), 600)
+        XCTAssertEqual(PanelGeometry.menuBarHeight(contentHeight: 900, visibleHeight: 992), 760)
+        XCTAssertEqual(PanelGeometry.menuBarHeight(contentHeight: 900, visibleHeight: 400), 320)
+    }
+
 }

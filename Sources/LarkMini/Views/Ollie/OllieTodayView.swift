@@ -18,6 +18,9 @@ struct OllieTodayView: View {
             content
         }
         .background(OllieStyle.bg)
+        .background(GeometryReader { proxy in
+            Color.clear.preference(key: PanelContentHeightKey.self, value: proxy.size.height)
+        })
         .task {
             await notifications.requestApprovalAuthorization()
             monitor.refresh()

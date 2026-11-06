@@ -9,6 +9,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let bubbleController: EdgeBubbleController
     private let demoMode: Bool
     private let backgroundCheck: Bool
+    private let showPanelCheck: Bool
     private var statusItem: NSStatusItem?
     private var outsideMonitor: Any?
     private var hotKey: GlobalHotKey?
@@ -42,6 +43,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     init(demo: Bool, openDemoChat: Bool = false, openDemoControl: Bool = false, openDemoSearch: Bool = false, demoNeedsYou: Bool = false) {
         demoMode = demo
         backgroundCheck = CommandLine.arguments.contains("--background-check")
+        showPanelCheck = CommandLine.arguments.contains("--show-panel-check")
         store = demo ? Store.demo(needsYou: demoNeedsYou) : Store()
         if demo && openDemoChat, let chat = store.chats.first { store.open(chat) }
         if demo && openDemoControl { store.controlOpen = true }
@@ -123,6 +125,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             panelController.expand()
         }
         Task { @MainActor in self.refreshStatusBadge() }
+        if showPanelCheck {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
+                MainActor.assumeIsolated {
+                    self.panelController.expand(fromMenuBar: self.store.settings.showIn == .menubar,
+                                                activate: false)
+                    self.panelController.panel.level = .floating
+                    self.panelController.panel.orderFrontRegardless()
+                }
+            }
+        }
     }
 
     func application(_ application: NSApplication, open urls: [URL]) {

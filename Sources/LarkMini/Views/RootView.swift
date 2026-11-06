@@ -41,6 +41,9 @@ struct RootView: View {
         .onChange(of: store.settings.panelWidth) {
             NotificationCenter.default.post(name: .panelSettingsChanged, object: nil)
         }
+        .onPreferenceChange(PanelContentHeightKey.self) { height in
+            NotificationCenter.default.post(name: .panelContentHeightChanged, object: height)
+        }
     }
 }
 
@@ -134,4 +137,5 @@ extension Notification.Name {
     static let panelSettingsChanged = Notification.Name("Sift.panelSettingsChanged")
     static let expandPanel = Notification.Name("Sift.expandPanel")
     static let collapsePanel = Notification.Name("Sift.collapsePanel")
+    static let panelContentHeightChanged = Notification.Name("Sift.panelContentHeightChanged")
 }
