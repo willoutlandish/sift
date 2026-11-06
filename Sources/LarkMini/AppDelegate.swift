@@ -36,7 +36,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     init(demo: Bool, openDemoChat: Bool = false, openDemoControl: Bool = false, openDemoSearch: Bool = false, demoNeedsYou: Bool = false) {
         demoMode = demo
         store = demo ? Store.demo(needsYou: demoNeedsYou) : Store()
-        if demo && openDemoChat { store.openChat = store.chats.first }
+        if demo && openDemoChat, let chat = store.chats.first { store.open(chat) }
         if demo && openDemoControl { store.controlOpen = true }
         if demo && openDemoSearch {
             store.searchOpen = true

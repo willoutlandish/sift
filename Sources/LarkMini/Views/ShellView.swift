@@ -14,18 +14,25 @@ struct ShellView: View {
 
     @ViewBuilder
     private var content: some View {
-        if store.showingSettings {
+        switch store.pane {
+        case .settings:
             SettingsView()
-        } else if store.controlOpen {
+        case .control:
             ControlChatView()
-        } else if store.ollieOpen {
+        case .ollie:
             OllieTodoView()
-        } else if let chat = store.openChat {
-            ConversationView(chat: chat)
-        } else if store.auth != .signedIn {
-            SignInView()
-        } else {
-            ChatListView()
+        case .chat:
+            if let chat = store.openChat {
+                ConversationView(chat: chat)
+            } else {
+                ChatListView()
+            }
+        case .lark:
+            if store.auth != .signedIn {
+                SignInView()
+            } else {
+                ChatListView()
+            }
         }
     }
 }

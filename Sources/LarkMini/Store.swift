@@ -6,6 +6,22 @@ import CryptoKit
 
 @MainActor
 final class Store: ObservableObject {
+    enum Pane: Equatable {
+        case lark
+        case ollie
+        case control
+        case settings
+        case chat(String)
+    }
+
+    enum RailItem: Equatable {
+        case lark
+        case ollie
+        case control
+        case settings
+        case chat(String)
+    }
+
     @Published private(set) var chats: [Chat] = []
     @Published private(set) var pinned: [String] = []
     @Published private(set) var previews: [String: Preview] = [:]
@@ -25,10 +41,10 @@ final class Store: ObservableObject {
     @Published private(set) var bubble: EdgeBubble?
     /// Set when a bubble opens Control, so it scrolls to the asks.
     @Published var controlFocusAsks = false
+    @Published private(set) var pane: Pane = .ollie
     private var bubbleExpiry: Task<Void, Never>?
     private var bubbleHeld = false
     private var bubbledNeeds = Set<String>()
-    @Published var showingSettings = false
     @Published var showingShortcuts = false
     @Published var deviceCode: DeviceCode?
     @Published var errorText: String?
@@ -72,11 +88,30 @@ final class Store: ObservableObject {
     nonisolated static let controlPage = 80
     nonisolated static let controlMaxTail = 400
     private var controlServerId: String?
+    var showingSettings: Bool {
+        get { pane == .settings }
+        set {
+            if newValue { pane = .settings }
+            else if pane == .settings { pane = .ollie }
+        }
+    }
+
+    var ollieOpen: Bool {
+        get { pane == .ollie }
+        set {
+            if newValue { pane = .ollie }
+            else if pane == .ollie { pane = .lark }
+        }
+    }
+
     /// Leaving Control drops back to the short tail, so a collapsed panel polls little.
-    @Published var ollieOpen = false
-    @Published var controlOpen = false {
-        didSet {
-            if !controlOpen { controlTail = Self.controlPage }
+    var controlOpen: Bool {
+        get { pane == .control }
+        set {
+            let wasOpen = pane == .control
+            if newValue { pane = .control }
+            else if wasOpen { pane = .lark }
+            if wasOpen && !newValue { controlTail = Self.controlPage }
             sendWatchGap()
         }
     }
@@ -316,6 +351,7 @@ final class Store: ObservableObject {
         me = nil
         auth = .signedOut
         openChat = nil
+        pane = .ollie
         Cache.clear()
     }
 
@@ -606,6 +642,7 @@ final class Store: ObservableObject {
         openChat = nil
         controlOpen = false
         ollieOpen = false
+        pane = .lark
     }
 
     func closeSearch() {
@@ -709,6 +746,7 @@ final class Store: ObservableObject {
         ollieOpen = false
         if searchOpen { closeSearch() }
         openChat = chat
+        pane = .chat(chat.id)
         if !chat.isP2P { Task { await resolveMembers(chat) } }
         errorText = nil
         if messages[chat.id] == nil {
@@ -723,6 +761,7 @@ final class Store: ObservableObject {
         controlOpen = false
         ollieOpen = false
         openChat = nil
+        pane = .lark
         showAllChats = false
         if searchOpen { closeSearch() }
     }
@@ -733,12 +772,14 @@ final class Store: ObservableObject {
         controlOpen = false
         showingSettings = false
         openChat = nil
+        pane = .ollie
         startCompanionMonitor()
         CompanionApprovalsMonitor.shared.refresh()
     }
 
     func closeConversation() {
         openChat = nil
+        pane = .lark
     }
 
     func draft(for chatId: String) -> String { drafts[chatId] ?? "" }
@@ -985,6 +1026,7 @@ final class Store: ObservableObject {
         ollieOpen = false
         showingSettings = false
         openChat = nil
+        pane = .control
         markControlRead()
         Task { await refreshControl() }
     }
@@ -1442,5 +1484,17 @@ final class Store: ObservableObject {
         store.openChat = nil
         store.settings.panelWidth = 400
         return store
+    }
+}
+
+extension Store.Pane {
+    var railItem: Store.RailItem {
+        switch self {
+        case .lark: return .lark
+        case .ollie: return .ollie
+        case .control: return .control
+        case .settings: return .settings
+        case .chat(let id): return .chat(id)
+        }
     }
 }

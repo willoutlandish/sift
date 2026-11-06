@@ -14,9 +14,11 @@ struct RailView: View {
                         .lineLimit(1).minimumScaleFactor(0.75)
                 }
                 .frame(width: 48, height: 58)
-                .background(RoundedRectangle(cornerRadius: 12).fill(SiftStyle.raised))
+                .background(RoundedRectangle(cornerRadius: 12)
+                    .fill(store.pane.railItem == .ollie ? SiftStyle.green.opacity(0.18) : SiftStyle.raised))
                 .overlay(RoundedRectangle(cornerRadius: 12)
-                    .strokeBorder(Color(red: 0.82, green: 0.94, blue: 0.08).opacity(0.55)))
+                    .strokeBorder(Color(red: 0.82, green: 0.94, blue: 0.08)
+                        .opacity(store.pane.railItem == .ollie ? 0.85 : 0.45)))
             }
             .buttonStyle(.plain)
             .help("Open Ollie")
@@ -29,7 +31,7 @@ struct RailView: View {
                     Text("Lark").font(.system(size: 11, weight: .medium))
                 }
                 .frame(width: 48, height: 58)
-                .background(selection(store.openChat == nil && !store.controlOpen && !store.showingSettings))
+                .background(selection(store.pane.railItem == .lark))
             }
             .buttonStyle(.plain)
             .help("Lark (⌘0)")
@@ -48,7 +50,7 @@ struct RailView: View {
                         Text("Control").font(.system(size: 11, weight: .medium))
                     }
                     .frame(width: 48, height: 54)
-                    .background(selection(store.controlOpen && !store.showingSettings))
+                    .background(selection(store.pane.railItem == .control))
                 }
                 .buttonStyle(.plain)
                 .help(store.attentionSummary.map { "Control · " + $0 } ?? "Control agent conversation")
@@ -72,7 +74,7 @@ struct RailView: View {
             VStack(spacing: 4) {
                 IconButton(symbol: "magnifyingglass", help: "Find a chat (⌘K)") { store.openSearch() }
                 IconButton(symbol: "gearshape", help: "Settings (⌘,)") { store.showingSettings = true }
-                    .background(selection(store.showingSettings))
+                    .background(selection(store.pane.railItem == .settings))
                 IconButton(symbol: "chevron.right", help: "Collapse Ollie (Esc)") {
                     NotificationCenter.default.post(name: .collapsePanel, object: nil)
                 }
@@ -98,7 +100,7 @@ struct RailView: View {
                     }
                 }
                 .frame(width: 48, height: 44)
-                .background(selection((store.openChat?.id == chat.id && !store.showingSettings) || dropTarget == chat.id))
+                .background(selection(store.pane.railItem == .chat(chat.id) || dropTarget == chat.id))
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
