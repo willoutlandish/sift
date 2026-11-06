@@ -46,7 +46,7 @@ final class CompanionWindowController: NSWindowController, WKNavigationDelegate,
         webView.navigationDelegate = self
         webView.uiDelegate = self
         contentController.addScriptMessageHandler(self, contentWorld: .page, name: "ollie")
-        contentController.addScriptMessageHandler(self, contentWorld: .page, name: "ollieAuthHint")
+        contentController.add(self, contentWorld: .page, name: "ollieAuthHint")
         positionTrafficLights()
         windowObservers = [
             NotificationCenter.default.addObserver(forName: NSWindow.didResizeNotification,
