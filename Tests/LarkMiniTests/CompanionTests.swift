@@ -54,6 +54,25 @@ final class CompanionTests: XCTestCase {
             scheme: "https", host: "example.com", port: 0, base: secure))
     }
 
+
+    func testCLIPathKeepsSameOriginAuthWhileSchemePathFallsBack() {
+        let base = URL(string: "http://100.113.131.96:8090")!
+        let auth = "/e2e/auth?secret=test&persona=shop_op"
+        XCTAssertEqual(CompanionConfig.targetURL(base: base, path: auth)?.absoluteString,
+                       "http://100.113.131.96:8090/companion/app")
+        XCTAssertEqual(CompanionConfig.cliTargetURL(base: base, path: auth)?.absoluteString,
+                       "http://100.113.131.96:8090/e2e/auth?secret=test&persona=shop_op")
+        XCTAssertNil(CompanionConfig.cliTargetURL(base: base, path: "https://example.com/e2e/auth"))
+        XCTAssertNil(CompanionConfig.cliTargetURL(base: base, path: "//example.com/e2e/auth"))
+    }
+
+    func testSignInProbeRejectsSignInPaths() {
+        XCTAssertTrue(CompanionSignInProbe.isSignIn(URL(string: "http://100.113.131.96:8090/outlandish/sign-in")!))
+        XCTAssertTrue(CompanionSignInProbe.isSignIn(URL(string: "http://100.113.131.96:8090/login")!))
+        XCTAssertFalse(CompanionSignInProbe.isSignIn(URL(string: "http://100.113.131.96:8090/companion/app")!))
+        XCTAssertTrue(CompanionSignInProbe.isSignIn(nil))
+    }
+
     func testNavigationAllowsTheOriginAndSignInHosts() {
         let base = URL(string: "http://100.113.131.96:8090")!
         let policy = CompanionNavigationPolicy(baseURL: base, signInHosts: ["outlandish.com"])

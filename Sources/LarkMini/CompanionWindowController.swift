@@ -40,8 +40,10 @@ final class CompanionWindowController: NSWindowController, WKNavigationDelegate,
         fatalError("init(coder:) has not been implemented")
     }
 
-    func open(baseURL: URL, path: String?) {
-        let target = CompanionConfig.targetURL(base: baseURL, path: path) ?? baseURL
+    func open(baseURL: URL, path: String?, allowAnyPath: Bool = false) {
+        let target = (allowAnyPath ? CompanionConfig.cliTargetURL(base: baseURL, path: path) : nil)
+            ?? CompanionConfig.targetURL(base: baseURL, path: path)
+            ?? baseURL
         self.baseURL = baseURL
         policy = CompanionNavigationPolicy(baseURL: baseURL)
         showWindow(nil)

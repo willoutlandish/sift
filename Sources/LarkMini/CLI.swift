@@ -367,43 +367,60 @@ enum CLI {
                   let base = CompanionConfig.validatedURL(raw) else {
                 return fail("No Companion URL configured. Run ollie companion set --url http://host:port")
             }
-            let path = CompanionPath.accepted(Flags(args).value("--path"))
-            guard let target = CompanionConfig.targetURL(base: base, path: path) else {
-                return fail("Could not build the Companion URL")
+            let path = Flags(args).value("--path") ?? ""
+            guard let target = CompanionConfig.cliTargetURL(base: base, path: path) else {
+                return fail("--path must stay on the configured Companion origin")
             }
-            guard let openURL = companionOpenURL(path: path) else {
+            if companionOpenRequest(base: base, path: path) {
+                return ok(["ok": true, "url": target.absoluteString, "path": path])
+            }
+            let normalized = path.isEmpty ? "" : (path.hasPrefix("/") ? path : "/" + path)
+            let accepted = CompanionPath.accepted(path.isEmpty ? nil : path)
+            guard path.isEmpty || accepted == normalized else {
+                return fail("Ollie is not running; open Ollie once, then retry this path.")
+            }
+            guard let openURL = companionOpenURL(path: accepted) else {
                 return fail("Could not build the Companion window URL")
             }
             LSRegisterURL(Bundle.main.bundleURL as CFURL, true)
             guard NSWorkspace.shared.open(openURL) else {
                 return fail("Could not open the Companion window")
             }
-            return ok(["ok": true, "url": target.absoluteString, "path": path])
+            return ok(["ok": true, "url": target.absoluteString, "path": accepted, "fallback": true])
         default:
             return fail("Unknown companion command '\(sub)'")
         }
+    }
+
+    private struct CompanionSessionReply {
+        var signedIn = false
+        var cookiePresent = false
     }
 
     private static func companionStatus(_ state: StateFile) -> Int32 {
         var payload: [String: Any] = ["ok": true]
         guard let raw = state.current.companionURL else {
             payload["url"] = NSNull()
-            payload["session_cookie"] = NSNull()
+            payload["signed_in"] = NSNull()
+            payload["cookie_present"] = NSNull()
             payload["session_cookie_state"] = "unconfigured"
             return ok(payload)
         }
         payload["url"] = raw
         guard let base = CompanionConfig.validatedURL(raw) else {
             payload["valid"] = false
-            payload["session_cookie"] = NSNull()
+            payload["signed_in"] = NSNull()
+            payload["cookie_present"] = NSNull()
             payload["session_cookie_state"] = "unknown"
             return ok(payload)
         }
-        if let signedIn = companionSessionStatus(for: base) {
-            payload["session_cookie"] = signedIn
+        if let reply = companionSessionStatus(for: base) {
+            payload["signed_in"] = reply.signedIn
+            payload["cookie_present"] = reply.cookiePresent
             payload["session_cookie_state"] = "checked"
         } else {
-            payload["session_cookie"] = NSNull()
+            payload["signed_in"] = NSNull()
+            payload["cookie_present"] = NSNull()
             payload["session_cookie_state"] = "unknown"
         }
         return ok(payload)
@@ -411,7 +428,7 @@ enum CLI {
 
     /// The CLI cannot read the app's live WebKit cookie store, so ask a running
     /// Ollie with the same support directory. nil means no app answered.
-    private static func companionSessionStatus(for base: URL) -> Bool? {
+    private static func companionSessionStatus(for base: URL) -> CompanionSessionReply? {
         let request = UUID().uuidString
         let prefix = "companion-status-\(request)-"
         let directory = AppPaths.supportDirectory
@@ -425,22 +442,22 @@ enum CLI {
                 "home": directory.path
             ]
         )
-        let deadline = Date().addingTimeInterval(1.5)
+        let deadline = Date().addingTimeInterval(4)
         var sawResponse = false
-        var signedIn = false
+        var reply = CompanionSessionReply()
         while Date() < deadline {
             if let files = try? fileManager.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil) {
                 for file in files where file.lastPathComponent.hasPrefix(prefix) {
                     sawResponse = true
                     if let data = try? Data(contentsOf: file),
-                       let reply = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-                       let value = reply["session_cookie"] as? Bool {
-                        signedIn = signedIn || value
+                       let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+                        reply.signedIn = reply.signedIn || (object["signed_in"] as? Bool ?? false)
+                        reply.cookiePresent = reply.cookiePresent || (object["cookie_present"] as? Bool ?? false)
                     }
                     try? fileManager.removeItem(at: file)
                 }
             }
-            if signedIn { break }
+            if reply.signedIn { break }
             Thread.sleep(forTimeInterval: 0.05)
         }
         if let files = try? fileManager.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil) {
@@ -448,8 +465,49 @@ enum CLI {
                 try? fileManager.removeItem(at: file)
             }
         }
-        if signedIn { return true }
-        return sawResponse ? false : nil
+        return sawResponse ? reply : nil
+    }
+
+    private static func companionOpenRequest(base: URL, path: String) -> Bool {
+        let request = UUID().uuidString
+        let prefix = "companion-open-\(request)-"
+        let directory = AppPaths.supportDirectory
+        let fileManager = FileManager.default
+        DistributedNotificationCenter.default().post(
+            name: .companionOpenRequest,
+            object: nil,
+            userInfo: [
+                "id": request,
+                "url": base.absoluteString,
+                "path": path,
+                "home": directory.path
+            ]
+        )
+        let deadline = Date().addingTimeInterval(1)
+        while Date() < deadline {
+            if let files = try? fileManager.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil) {
+                for file in files where file.lastPathComponent.hasPrefix(prefix) {
+                    let opened = (try? Data(contentsOf: file))
+                        .flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }
+                        .flatMap { $0["opened"] as? Bool } ?? false
+                    try? fileManager.removeItem(at: file)
+                    if opened {
+                        cleanupCompanionFiles(prefix: prefix, in: directory)
+                        return true
+                    }
+                }
+            }
+            Thread.sleep(forTimeInterval: 0.05)
+        }
+        cleanupCompanionFiles(prefix: prefix, in: directory)
+        return false
+    }
+
+    private static func cleanupCompanionFiles(prefix: String, in directory: URL) {
+        guard let files = try? FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil) else { return }
+        for file in files where file.lastPathComponent.hasPrefix(prefix) {
+            try? FileManager.default.removeItem(at: file)
+        }
     }
 
     private static func companionOpenURL(path: String) -> URL? {
@@ -583,7 +641,7 @@ enum CLI {
                   status | send "text" | logs [--tail N] | digest | asks | off
       companion Open the real Companion web app in its own Ollie window
                   set --url http://host:port
-                  status | open [--path /companion/app/...]
+                  status | open [--path /same-origin/path]
       doctor    Check credentials, token and chat access
       open      Open the Ollie app
       logout    Forget the current session

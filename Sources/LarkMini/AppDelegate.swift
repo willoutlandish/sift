@@ -13,6 +13,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var editMonitor: Any?
     private var keyMonitor: Any?
     private var companionStatusObserver: NSObjectProtocol?
+    private var companionOpenObserver: NSObjectProtocol?
+    private var companionProbes: [CompanionSignInProbe] = []
     private let companionStatusInstance = UUID().uuidString
 
     init(demo: Bool, openDemoChat: Bool = false, openDemoControl: Bool = false, openDemoSearch: Bool = false, demoNeedsYou: Bool = false) {
@@ -41,6 +43,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             forName: .companionStatusRequest, object: nil, queue: .main
         ) { [weak self] note in
             MainActor.assumeIsolated { self?.answerCompanionStatus(note) }
+        }
+        companionOpenObserver = DistributedNotificationCenter.default().addObserver(
+            forName: .companionOpenRequest, object: nil, queue: .main
+        ) { [weak self] note in
+            MainActor.assumeIsolated { self?.answerCompanionOpen(note) }
         }
         installEditMenu()
         installKeyMonitor()
@@ -78,6 +85,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if let companionStatusObserver {
             DistributedNotificationCenter.default().removeObserver(companionStatusObserver)
         }
+        if let companionOpenObserver {
+            DistributedNotificationCenter.default().removeObserver(companionOpenObserver)
+        }
     }
 
     private func answerCompanionStatus(_ note: Notification) {
@@ -87,12 +97,42 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
               let configured = StateFile.shared.reload().companionURL.flatMap(CompanionConfig.validatedURL),
               requested.absoluteString == configured.absoluteString else { return }
         let instance = companionStatusInstance
-        CompanionSession.sessionCookieExists(for: requested) { exists in
-            let file = AppPaths.supportDirectory
-                .appendingPathComponent("companion-status-\(id)-\(instance).json")
-            guard let data = try? JSONSerialization.data(withJSONObject: ["session_cookie": exists]) else { return }
-            try? data.write(to: file, options: .atomic)
+        CompanionSession.sessionCookieExists(for: requested) { cookiePresent in
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                let probe = CompanionSignInProbe()
+                self.companionProbes.append(probe)
+                probe.check(baseURL: requested) { signedIn in
+                    Task { @MainActor [weak self, weak probe] in
+                        guard let self else { return }
+                        if let probe { self.companionProbes.removeAll { $0 === probe } }
+                        let file = AppPaths.supportDirectory
+                            .appendingPathComponent("companion-status-\(id)-\(instance).json")
+                        let payload: [String: Any] = ["signed_in": signedIn, "cookie_present": cookiePresent]
+                        guard let data = try? JSONSerialization.data(withJSONObject: payload) else { return }
+                        try? data.write(to: file, options: .atomic)
+                    }
+                }
+            }
         }
+    }
+
+    private func answerCompanionOpen(_ note: Notification) {
+        guard let id = note.userInfo?["id"] as? String, UUID(uuidString: id) != nil,
+              note.userInfo?["home"] as? String == AppPaths.supportDirectory.path,
+              let requested = (note.userInfo?["url"] as? String).flatMap(CompanionConfig.validatedURL),
+              let configured = StateFile.shared.reload().companionURL.flatMap(CompanionConfig.validatedURL),
+              requested.absoluteString == configured.absoluteString,
+              let path = note.userInfo?["path"] as? String,
+              let target = CompanionConfig.cliTargetURL(base: requested, path: path) else { return }
+        let instance = companionStatusInstance
+        panelController.expand()
+        CompanionWindowController.shared.open(baseURL: requested, path: path, allowAnyPath: true)
+        let file = AppPaths.supportDirectory
+            .appendingPathComponent("companion-open-\(id)-\(instance).json")
+        let payload: [String: Any] = ["opened": true, "url": target.absoluteString]
+        guard let data = try? JSONSerialization.data(withJSONObject: payload) else { return }
+        try? data.write(to: file, options: .atomic)
     }
 
     /// Accessory apps with no main menu never route ⌘C/⌘V/⌘A, so the panel's

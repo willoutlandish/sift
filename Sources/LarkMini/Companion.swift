@@ -38,6 +38,17 @@ enum CompanionConfig {
         URL(string: CompanionPath.accepted(path), relativeTo: base)?.absoluteURL
     }
 
+    /// CLI paths may leave /companion/ (the dev sign-in lives at /e2e/auth), but
+    /// they must stay on the configured scheme, host and port.
+    static func cliTargetURL(base: URL, path: String?) -> URL? {
+        let raw = path?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        guard !raw.contains("://"), !raw.hasPrefix("//") else { return nil }
+        let normalized = raw.isEmpty ? CompanionPath.fallback : (raw.hasPrefix("/") ? raw : "/" + raw)
+        guard let target = URL(string: normalized, relativeTo: base)?.absoluteURL else { return nil }
+        return originMatches(scheme: target.scheme ?? "", host: target.host ?? "",
+                             port: target.port ?? 0, base: base) ? target : nil
+    }
+
     static func originMatches(scheme: String, host: String, port: Int, base: URL) -> Bool {
         guard let baseScheme = base.scheme?.lowercased(),
               let baseHost = base.host?.lowercased() else { return false }
@@ -99,6 +110,7 @@ struct CompanionNavigationPolicy: Equatable {
 
 extension Notification.Name {
     static let companionStatusRequest = Notification.Name("com.outlandish.ollie.companion-status-request")
+    static let companionOpenRequest = Notification.Name("com.outlandish.ollie.companion-open-request")
 }
 
 enum CompanionSession {
@@ -116,14 +128,55 @@ enum CompanionSession {
         }
     }
 
-    static func hasSessionCookie(for baseURL: URL) -> Bool {
-        let semaphore = DispatchSemaphore(value: 0)
-        var found = false
-        sessionCookieExists(for: baseURL) { exists in
-            found = exists
-            semaphore.signal()
-        }
-        guard semaphore.wait(timeout: .now() + 5) == .success else { return false }
-        return found
+}
+
+@MainActor
+final class CompanionSignInProbe: NSObject, WKNavigationDelegate {
+    private let webView: WKWebView
+    private var completion: ((Bool) -> Void)?
+    private var finished = false
+    private var timeout: DispatchWorkItem?
+
+    override init() {
+        let configuration = WKWebViewConfiguration()
+        configuration.websiteDataStore = .default()
+        webView = WKWebView(frame: .zero, configuration: configuration)
+        super.init()
+        webView.navigationDelegate = self
+    }
+
+    func check(baseURL: URL, completion: @escaping (Bool) -> Void) {
+        self.completion = completion
+        let target = CompanionConfig.targetURL(base: baseURL, path: nil) ?? baseURL
+        let timeout = DispatchWorkItem { [weak self] in self?.finish(signedIn: false) }
+        self.timeout = timeout
+        DispatchQueue.main.asyncAfter(deadline: .now() + 3, execute: timeout)
+        webView.load(URLRequest(url: target))
+    }
+
+    nonisolated static func isSignIn(_ url: URL?) -> Bool {
+        guard let path = url?.path else { return true }
+        return path == "/outlandish/sign-in" || path == "/login"
+            || path.hasPrefix("/outlandish/sign-in/") || path.hasPrefix("/login/")
+    }
+
+    private func finish(signedIn: Bool) {
+        guard !finished else { return }
+        finished = true
+        timeout?.cancel()
+        completion?(signedIn)
+        completion = nil
+    }
+
+    func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+        finish(signedIn: !Self.isSignIn(webView.url))
+    }
+
+    func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
+        finish(signedIn: false)
+    }
+
+    func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
+        finish(signedIn: false)
     }
 }
