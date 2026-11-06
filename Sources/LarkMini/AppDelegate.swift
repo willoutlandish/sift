@@ -129,8 +129,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
                 MainActor.assumeIsolated {
                     self.panelController.expand(fromMenuBar: self.store.settings.showIn == .menubar,
-                                                activate: false)
-                    self.panelController.panel.level = .floating
+                                                activate: true)
                     self.panelController.panel.orderFrontRegardless()
                 }
             }

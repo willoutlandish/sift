@@ -102,4 +102,15 @@ final class PanelPositionTests: XCTestCase {
         XCTAssertEqual(PanelGeometry.menuBarHeight(contentHeight: 900, visibleHeight: 400), 320)
     }
 
+
+    func testOpenPanelSitsAboveNormalAndClosedMenuBarDoesNot() {
+        let open = PanelLevel.level(isExpanded: true, showIn: .menubar)
+        XCTAssertGreaterThanOrEqual(open.rawValue, NSWindow.Level.statusBar.rawValue)
+        XCTAssertGreaterThan(open.rawValue, NSWindow.Level.normal.rawValue)
+        XCTAssertEqual(PanelLevel.level(isExpanded: false, showIn: .menubar).rawValue,
+                       NSWindow.Level.normal.rawValue)
+        XCTAssertGreaterThan(PanelLevel.level(isExpanded: false, showIn: .edge).rawValue,
+                             NSWindow.Level.normal.rawValue)
+    }
+
 }

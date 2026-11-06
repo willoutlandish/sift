@@ -86,6 +86,16 @@ extension View {
     func panelDragHandle() -> some View { modifier(PanelDragHandle()) }
 }
 
+enum PanelLevel {
+    // The open panel is deliberately above normal apps (menu bar, edge head or hot key).
+    // Passive cues (Lark toasts, the edge bubble and previews) stay at .normal; R2's
+    // opt-in rule governs those, never the panel the person just opened.
+    static func level(isExpanded: Bool, showIn: ShowIn) -> NSWindow.Level {
+        if isExpanded { return .popUpMenu }
+        return showIn.showsEdgeHead ? .floating : .normal
+    }
+}
+
 struct PanelContentHeightKey: PreferenceKey {
     static var defaultValue: CGFloat = 0
     static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
@@ -116,7 +126,7 @@ final class PanelController {
         panel.backgroundColor = .clear
         panel.hasShadow = false
         panel.level = .floating
-        panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .ignoresCycle]
+        panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .transient]
         panel.isMovable = false
         panel.isMovableByWindowBackground = false
         panel.hidesOnDeactivate = false
@@ -225,10 +235,12 @@ final class PanelController {
         }
         layout()
         if activate {
+            NSApp.activate(ignoringOtherApps: true)
             panel.makeKeyAndOrderFront(nil)
         } else {
             panel.orderFront(nil)
         }
+        panel.orderFrontRegardless()
         NSAnimationContext.runAnimationGroup { context in
             context.duration = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion ? 0 : 0.16
             panel.animator().alphaValue = 1
@@ -318,7 +330,7 @@ final class PanelController {
             rect = PanelGeometry.rightEdge(size: NSSize(width: 72, height: 72), in: visible, margin: 10)
         }
         panel.hasShadow = store.isExpanded
-        panel.level = store.isExpanded ? .normal : .floating
+        panel.level = PanelLevel.level(isExpanded: store.isExpanded, showIn: store.settings.showIn)
         panel.setFrame(rect, display: true)
         resizeContent()
     }
