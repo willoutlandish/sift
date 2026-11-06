@@ -1,6 +1,6 @@
 import SwiftUI
 
-struct OllieTodoView: View {
+struct OllieRootView: View {
     @EnvironmentObject var store: Store
     @State private var screen = Screen.today
 

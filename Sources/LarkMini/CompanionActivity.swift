@@ -240,14 +240,6 @@ final class CompanionActivity: ObservableObject {
     private var task: Task<Void, Never>?
     private var refreshing = false
 
-    func detect(resource: String) async {
-        guard availabilityByResource[resource] == nil else { return }
-        guard let reply = await CompanionApprovalsMonitor.shared.fetch(path: Self.shopPath(resource)) else { return }
-        let detected = CompanionActivityAvailability.from(status: reply.status)
-        availabilityByResource[resource] = detected
-        availability = detected
-    }
-
     func start(resource: String) {
         if self.resource == resource, task != nil { return }
         stop()

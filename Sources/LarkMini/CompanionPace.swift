@@ -153,10 +153,6 @@ struct CompanionPaceBarModel: Equatable {
 enum CompanionPace {
     static let path = "/api/oo/portfolio"
 
-    static func matches(shopResource: String, shopName: String, pace: CompanionShopPace) -> Bool {
-        shopResource.caseInsensitiveCompare(pace.resource) == .orderedSame || shopName == pace.name
-    }
-
     static func compactMoney(_ value: Double?, currency: String?, signed: Bool = false) -> String {
         guard let value else { return "" }
         let sign = value < 0 ? "−" : (signed ? "+" : "")

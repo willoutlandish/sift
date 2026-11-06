@@ -238,16 +238,6 @@ final class CompanionTests: XCTestCase {
 
 
 
-    func testPaceMatchesShopByResourceOrName() {
-        let pace = CompanionShopPace(resource: "yunjac.us", name: "YUNJAC.US", currency: "USD",
-                                     mtd: 1, goal: 2, expectedByToday: 1, gap: 0,
-                                     progressPct: 50, paceStatus: "on_track", basis: "total")
-        XCTAssertTrue(CompanionPace.matches(shopResource: "yunjac.us", shopName: "Anything", pace: pace))
-        XCTAssertTrue(CompanionPace.matches(shopResource: "YUNJAC.US", shopName: "Anything", pace: pace))
-        XCTAssertTrue(CompanionPace.matches(shopResource: "other", shopName: "YUNJAC.US", pace: pace))
-        XCTAssertFalse(CompanionPace.matches(shopResource: "other", shopName: "Other", pace: pace))
-    }
-
     func testPaceBarMathsStatusesAndNulls() {
         let base = CompanionShopPace(resource: "north", name: "North Studio", currency: "USD",
                                      mtd: 500, goal: 1000, expectedByToday: 750, gap: -250,
