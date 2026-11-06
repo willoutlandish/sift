@@ -372,6 +372,7 @@ final class CompanionApprovalsMonitor: NSObject, WKNavigationDelegate, Observabl
     private var pollTask: Task<Void, Never>?
     private var failures = 0
     private var polling = false
+    private var paceRefreshing = false
     private let seenStore = CompanionApprovalsSeenStore()
 
     func start(baseURL: URL) {
@@ -397,6 +398,7 @@ final class CompanionApprovalsMonitor: NSObject, WKNavigationDelegate, Observabl
         baseURL = nil
         failures = 0
         polling = false
+        paceRefreshing = false
         state = .loading
         pace = [:]
         paceState = .unknown
@@ -410,7 +412,10 @@ final class CompanionApprovalsMonitor: NSObject, WKNavigationDelegate, Observabl
             state = .signedOut
             return
         }
-        Task { await poll() }
+        Task {
+            await refreshPaceNow()
+            await poll()
+        }
     }
 
     func webView(_ webView: WKWebView, didCommit navigation: WKNavigation!) {
@@ -543,7 +548,7 @@ final class CompanionApprovalsMonitor: NSObject, WKNavigationDelegate, Observabl
         let snapshot = CompanionTodos.make(from: list)
         state = .ready(snapshot)
         OllieBadge.setApprovals(snapshot.total)
-        await refreshPace()
+        await refreshPaceNow()
 
         let approvals = CompanionApprovals.flatten(list)
         if let seen = seenStore.load() {
@@ -564,7 +569,26 @@ final class CompanionApprovalsMonitor: NSObject, WKNavigationDelegate, Observabl
         schedule(after: 60)
     }
 
-    private func refreshPace() async {
+    func probePace() async -> (status: Int, paceState: CompanionPaceState, shops: [CompanionShopPace]) {
+        guard let reply = await fetch(path: CompanionPace.path) else {
+            return (0, paceState, [])
+        }
+        let state = CompanionPaceState.from(status: reply.status)
+        guard state == .available, let parsed = CompanionPace.parse(reply.body) else {
+            pace = [:]
+            paceState = state == .hidden ? .hidden : .failed
+            return (reply.status, paceState, [])
+        }
+        pace = parsed
+        paceState = .available
+        return (reply.status, .available, parsed.values.sorted { $0.name < $1.name })
+    }
+
+    func refreshPaceNow() async {
+        guard !paceRefreshing else { return }
+        paceRefreshing = true
+        defer { paceRefreshing = false }
+        paceState = .unknown
         guard let reply = await fetch(path: CompanionPace.path) else {
             paceState = .failed
             return

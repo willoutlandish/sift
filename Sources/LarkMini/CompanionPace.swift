@@ -26,6 +26,15 @@ enum CompanionPaceState: Equatable {
         default: return .failed
         }
     }
+
+    var label: String {
+        switch self {
+        case .unknown: return "unknown"
+        case .available: return "available"
+        case .hidden: return "hidden"
+        case .failed: return "failed"
+        }
+    }
 }
 
 enum CompanionPaceTone: Equatable {
@@ -97,6 +106,10 @@ struct CompanionPaceBarModel: Equatable {
 
 enum CompanionPace {
     static let path = "/api/oo/control-room/shops"
+
+    static func matches(shopResource: String, shopName: String, pace: CompanionShopPace) -> Bool {
+        shopResource.caseInsensitiveCompare(pace.resource) == .orderedSame || shopName == pace.name
+    }
 
     static func parse(_ body: String) -> [String: CompanionShopPace]? {
         guard let data = body.data(using: .utf8),

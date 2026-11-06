@@ -157,12 +157,19 @@ struct OllieTodoView: View {
     private func displayShops(_ snapshot: CompanionTodoSnapshot) -> [CompanionTodoShop] {
         var shops = snapshot.shops
         guard monitor.paceState == .available else { return shops }
-        let known = Set(shops.map(\.resource))
-        for pace in monitor.pace.values where !known.contains(pace.resource) {
+        for pace in monitor.pace.values where !shops.contains(where: { matches($0, pace) }) {
             shops.append(CompanionTodoShop(resource: pace.resource, name: pace.name,
                                            pending: 0, items: [], more: 0))
         }
         return shops
+    }
+
+    private func matches(_ shop: CompanionTodoShop, _ pace: CompanionShopPace) -> Bool {
+        CompanionPace.matches(shopResource: shop.resource, shopName: shop.name, pace: pace)
+    }
+
+    private func pace(for shop: CompanionTodoShop) -> CompanionShopPace? {
+        monitor.pace[shop.resource] ?? monitor.pace.values.first { matches(shop, $0) }
     }
 
     private func shopSection(_ shop: CompanionTodoShop) -> some View {
@@ -183,7 +190,7 @@ struct OllieTodoView: View {
                     .padding(.horizontal, 6).padding(.vertical, 1)
                     .background(Capsule().fill(SiftStyle.green.opacity(0.14)))
             }
-            if let pace = monitor.pace[shop.resource] {
+            if let pace = pace(for: shop) {
                 ShopPaceBarView(model: CompanionPaceBarModel(pace))
             }
             ForEach(shop.items) { item in

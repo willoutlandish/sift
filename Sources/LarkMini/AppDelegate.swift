@@ -14,6 +14,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var keyMonitor: Any?
     private var companionStatusObserver: NSObjectProtocol?
     private var companionOpenObserver: NSObjectProtocol?
+    private var companionPaceObserver: NSObjectProtocol?
     private var companionProbes: [CompanionSignInProbe] = []
     private let companionStatusInstance = UUID().uuidString
     private lazy var companionProbe = CompanionProbeCoordinator(
@@ -70,6 +71,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         ) { [weak self] note in
             MainActor.assumeIsolated { self?.answerCompanionOpen(note) }
         }
+        companionPaceObserver = DistributedNotificationCenter.default().addObserver(
+            forName: .companionPaceRequest, object: nil, queue: .main
+        ) { [weak self] note in
+            MainActor.assumeIsolated { self?.answerCompanionPace(note) }
+        }
         installEditMenu()
         installKeyMonitor()
         setUpStatusItem()
@@ -115,6 +121,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if let companionOpenObserver {
             DistributedNotificationCenter.default().removeObserver(companionOpenObserver)
         }
+        if let companionPaceObserver {
+            DistributedNotificationCenter.default().removeObserver(companionPaceObserver)
+        }
     }
 
     private func answerCompanionStatus(_ note: Notification) {
@@ -128,6 +137,33 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             let file = AppPaths.supportDirectory
                 .appendingPathComponent("companion-status-\(id)-\(instance).json")
             let payload: [String: Any] = ["signed_in": result.signedIn, "cookie_present": result.cookiePresent]
+            guard let data = try? JSONSerialization.data(withJSONObject: payload) else { return }
+            try? data.write(to: file, options: .atomic)
+        }
+    }
+
+    private func answerCompanionPace(_ note: Notification) {
+        guard let id = note.userInfo?["id"] as? String, UUID(uuidString: id) != nil,
+              note.userInfo?["home"] as? String == AppPaths.supportDirectory.path,
+              let requested = (note.userInfo?["url"] as? String).flatMap(CompanionConfig.validatedURL),
+              let configured = StateFile.shared.reload().companionURL.flatMap(CompanionConfig.validatedURL),
+              requested.absoluteString == configured.absoluteString else { return }
+        let instance = companionStatusInstance
+        CompanionApprovalsMonitor.shared.start(baseURL: requested)
+        Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 500_000_000)
+            let probe = await CompanionApprovalsMonitor.shared.probePace()
+            let payload: [String: Any] = [
+                "status": probe.status,
+                "pace_state": probe.paceState.label,
+                "shop_count": probe.shops.count,
+                "shops": probe.shops.map { shop in
+                    ["resource": shop.resource, "name": shop.name,
+                     "pace_status": shop.paceStatus, "goal": shop.goal.map { $0 as Any } ?? NSNull()]
+                }
+            ]
+            let file = AppPaths.supportDirectory
+                .appendingPathComponent("companion-pace-\(id)-\(instance).json")
             guard let data = try? JSONSerialization.data(withJSONObject: payload) else { return }
             try? data.write(to: file, options: .atomic)
         }
