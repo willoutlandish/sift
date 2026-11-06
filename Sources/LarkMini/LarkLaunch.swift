@@ -13,6 +13,13 @@ enum LarkLaunch {
         applicationExists ? .app : .web
     }
 
+    static func icon() -> NSImage? {
+        guard let application = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleIdentifier) else {
+            return nil
+        }
+        return NSWorkspace.shared.icon(forFile: application.path)
+    }
+
     static func open() {
         let application = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleIdentifier)
         switch choice(applicationExists: application != nil) {

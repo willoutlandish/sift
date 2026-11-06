@@ -27,7 +27,7 @@ struct RailView: View {
 
             Button { store.showInbox() } label: {
                 VStack(spacing: 4) {
-                    InboxFaceIcon(size: 32)
+                    LarkIcon(size: 32)
                     Text("Lark").font(.system(size: 11, weight: .medium))
                 }
                 .frame(width: 48, height: 58)
