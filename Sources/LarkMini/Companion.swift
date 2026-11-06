@@ -272,6 +272,7 @@ extension Notification.Name {
     static let companionStatusRequest = Notification.Name.companion("companion-status-request")
     static let companionOpenRequest = Notification.Name.companion("companion-open-request")
     static let companionPaceRequest = Notification.Name.companion("companion-pace-request")
+    static let appSettingsChanged = Notification.Name.companion("settings-changed")
 }
 
 enum CompanionSession {
@@ -303,7 +304,7 @@ final class CompanionProbeCoordinator {
     typealias SignInCheck = @MainActor (URL, @escaping (Bool) -> Void) -> Void
 
     nonisolated static let cacheLifetime: TimeInterval = 30
-    nonisolated static let probeTimeout: TimeInterval = 4
+    nonisolated static let probeTimeout: TimeInterval = 12
 
     private let cookieCheck: CookieCheck
     private let signInCheck: SignInCheck

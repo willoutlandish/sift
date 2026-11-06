@@ -95,6 +95,8 @@ final class PanelController {
     private let margin: CGFloat = 12
     private var transitionID = 0
     private var collapsePending = false
+    private var anchorToMenuBar = false
+    var menuBarAnchor: (() -> NSRect?)?
 
     init(store: Store) {
         self.store = store
@@ -185,25 +187,47 @@ final class PanelController {
     }
 
     func show() {
+        guard store.settings.showIn.showsEdgeHead else {
+            panel.orderOut(nil)
+            return
+        }
         layout()
         panel.orderFrontRegardless()
     }
 
-    func expand() {
+    func expand(fromMenuBar: Bool = false, activate: Bool = true) {
         store.reloadState()
         Task { await Notifications.shared.requestApprovalAuthorization() }
         transitionID += 1
         collapsePending = false
+        anchorToMenuBar = fromMenuBar || store.settings.showIn == .menubar
         if !store.isExpanded {
             store.isExpanded = true
             GazeTracker.shared.active = false
-            layout()
             panel.alphaValue = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion ? 1 : 0
         }
-        panel.makeKeyAndOrderFront(nil)
+        layout()
+        if activate {
+            panel.makeKeyAndOrderFront(nil)
+        } else {
+            panel.orderFront(nil)
+        }
         NSAnimationContext.runAnimationGroup { context in
             context.duration = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion ? 0 : 0.16
             panel.animator().alphaValue = 1
+        }
+    }
+
+    func applyMode() {
+        if store.settings.showIn == .menubar, store.isExpanded {
+            anchorToMenuBar = true
+        }
+        if store.isExpanded {
+            layout()
+        } else if store.settings.showIn.showsEdgeHead {
+            show()
+        } else {
+            panel.orderOut(nil)
         }
     }
 
@@ -227,14 +251,19 @@ final class PanelController {
                 self.collapsePending = false
                 self.store.isExpanded = false
                 GazeTracker.shared.active = true
-                self.layout()
-                self.panel.alphaValue = 1
+                if self.store.settings.showIn.showsEdgeHead {
+                    self.layout()
+                    self.panel.alphaValue = 1
+                    self.panel.orderFrontRegardless()
+                } else {
+                    self.panel.orderOut(nil)
+                }
             }
         }
     }
 
-    func toggle() {
-        store.isExpanded && !collapsePending ? collapse() : expand()
+    func toggle(fromMenuBar: Bool = false) {
+        store.isExpanded && !collapsePending ? collapse() : expand(fromMenuBar: fromMenuBar)
     }
 
     func refreshLayout() {
@@ -243,17 +272,25 @@ final class PanelController {
     }
 
     private func layout() {
-        guard let visible = (panel.screen ?? NSScreen.main ?? NSScreen.screens.first)?.visibleFrame else { return }
+        let anchor = anchorToMenuBar ? menuBarAnchor?() : nil
+        let targetScreen = anchor.flatMap { anchor in
+            NSScreen.screens.first { $0.frame.intersects(anchor) }
+        } ?? panel.screen ?? NSScreen.main ?? NSScreen.screens.first
+        guard let visible = targetScreen?.visibleFrame else { return }
         let rect: NSRect
         if store.isExpanded {
             let size = NSSize(width: CGFloat(Settings.validWidth(store.settings.panelWidth)),
                               height: min(560, visible.height - margin * 2 - 40))
-            var proposed = PanelGeometry.rightEdge(size: size, in: visible, margin: margin)
-            if let saved = UserDefaults.standard.array(forKey: "expandedPanelOrigin") as? [Double], saved.count == 2,
-               saved.allSatisfy({ $0.isFinite }) {
-                proposed.origin = NSPoint(x: saved[0], y: saved[1])
+            if let anchor {
+                rect = PanelGeometry.underStatusItem(size: size, anchor: anchor, in: visible, margin: margin)
+            } else {
+                var proposed = PanelGeometry.rightEdge(size: size, in: visible, margin: margin)
+                if let saved = UserDefaults.standard.array(forKey: "expandedPanelOrigin") as? [Double], saved.count == 2,
+                   saved.allSatisfy({ $0.isFinite }) {
+                    proposed.origin = NSPoint(x: saved[0], y: saved[1])
+                }
+                rect = PanelGeometry.clamp(proposed, in: visible, margin: margin)
             }
-            rect = PanelGeometry.clamp(proposed, in: visible, margin: margin)
         } else {
             // Leave room for the resting head, its aura and unread badge.
             rect = PanelGeometry.rightEdge(size: NSSize(width: 72, height: 72), in: visible, margin: 10)
@@ -303,5 +340,15 @@ enum PanelGeometry {
         NSRect(x: visible.maxX - margin - size.width,
                y: visible.midY - size.height / 2,
                width: size.width, height: size.height)
+    }
+
+    static func underStatusItem(size: NSSize, anchor: NSRect, in visible: NSRect, margin: CGFloat) -> NSRect {
+        let width = min(size.width, max(0, visible.width - margin * 2))
+        let height = min(size.height, max(0, visible.height - margin * 2))
+        let x = min(max(anchor.midX - width / 2, visible.minX + margin),
+                    visible.maxX - margin - width)
+        let y = min(max(anchor.minY - height - 4, visible.minY + margin),
+                    visible.maxY - margin - height)
+        return NSRect(x: x, y: y, width: width, height: height)
     }
 }

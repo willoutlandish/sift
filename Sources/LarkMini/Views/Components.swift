@@ -171,7 +171,8 @@ extension View {
 enum OllieBadge {
     private static var approvals = 0
     private static var unread = 0
-    static var onSet: ((Int) -> Void)?
+    static var onSet: ((Int, Int) -> Void)?
+    static var current: (approvals: Int, unread: Int) { (approvals, unread) }
 
     static func setApprovals(_ count: Int) {
         approvals = clamp(count)
@@ -190,21 +191,28 @@ enum OllieBadge {
     private static func apply() {
         let count = approvals > 0 ? approvals : unread
         NSApp.dockTile.badgeLabel = count > 0 ? "\(count)" : nil
-        onSet?(count)
+        onSet?(approvals, unread)
     }
 }
 
 enum BrandIcon {
-    static func statusBar() -> NSImage? {
-        let size = NSSize(width: 18, height: 18)
+    static func statusBar(unread: Bool = false) -> NSImage? {
+        let size = NSSize(width: 20, height: 18)
         let image = NSImage(size: size)
         image.lockFocus()
+        let duck = NSRect(x: 0, y: 0, width: 18, height: 18)
         if let head = OllieArt.head() {
-            head.draw(in: NSRect(origin: .zero, size: size), from: .zero,
-                      operation: .sourceOver, fraction: 1)
+            head.draw(in: duck, from: .zero, operation: .sourceOver, fraction: 1)
         } else {
             NSColor(calibratedRed: 0.85, green: 0.95, blue: 0.05, alpha: 1).setFill()
-            NSBezierPath(ovalIn: NSRect(x: 0.5, y: 0.5, width: 17, height: 17)).fill()
+            NSBezierPath(ovalIn: duck.insetBy(dx: 0.5, dy: 0.5)).fill()
+        }
+        if unread {
+            let dot = NSRect(x: 14, y: 13, width: 5, height: 5)
+            NSColor.white.setFill()
+            NSBezierPath(ovalIn: dot.insetBy(dx: -1, dy: -1)).fill()
+            NSColor.systemRed.setFill()
+            NSBezierPath(ovalIn: dot).fill()
         }
         image.unlockFocus()
         image.isTemplate = false

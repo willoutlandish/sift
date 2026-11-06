@@ -1,4 +1,5 @@
 import AppKit
+import Combine
 import SwiftUI
 
 @MainActor
@@ -16,6 +17,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var companionStatusObserver: NSObjectProtocol?
     private var companionOpenObserver: NSObjectProtocol?
     private var companionPaceObserver: NSObjectProtocol?
+    private var settingsObserver: NSObjectProtocol?
+    private var panelSettingsObserver: NSObjectProtocol?
+    private var badgeWatch: AnyCancellable?
     private var companionProbes: [CompanionSignInProbe] = []
     private let companionStatusInstance = UUID().uuidString
     private lazy var companionProbe = CompanionProbeCoordinator(
@@ -53,7 +57,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         GazeTracker.shared.start()
         Notifications.shared.onOpen = { [weak self] destination in
             guard let self else { return }
-            self.panelController.expand()
+            self.panelController.expand(fromMenuBar: self.store.settings.showIn == .menubar)
             if destination == "control" {
                 self.store.openControl()
             } else if destination.hasPrefix("companion:") {
@@ -80,14 +84,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         installEditMenu()
         installKeyMonitor()
-        setUpStatusItem()
-        OllieBadge.onSet = { [weak self] count in
-            self?.statusItem?.button?.title = count > 0 ? " \(count)" : ""
+        panelController.menuBarAnchor = { [weak self] in self?.statusItemAnchor() }
+        OllieBadge.onSet = { [weak self] _, _ in self?.refreshStatusBadge() }
+        panelSettingsObserver = NotificationCenter.default.addObserver(
+            forName: .panelSettingsChanged, object: nil, queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated { self?.applyShowInMode() }
         }
+        settingsObserver = DistributedNotificationCenter.default().addObserver(
+            forName: .appSettingsChanged, object: nil, queue: .main
+        ) { [weak self] note in
+            guard note.userInfo?["home"] as? String == AppPaths.supportDirectory.path else { return }
+            MainActor.assumeIsolated {
+                self?.store.reloadState()
+                self?.applyShowInMode()
+            }
+        }
+        applyShowInMode()
         let signedIn: Bool
         if case .signedIn = store.auth { signedIn = true } else { signedIn = false }
-        store.isExpanded = demoMode ? !CommandLine.arguments.contains("--demo-needs-you") : !signedIn
-        if !backgroundCheck {
+        store.isExpanded = demoMode ? !CommandLine.arguments.contains("--demo-needs-you")
+            : (!signedIn && store.settings.showIn.showsEdgeHead)
+        if !backgroundCheck && store.settings.showIn.showsEdgeHead {
             panelController.show()
         }
         store.start()
@@ -95,6 +113,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             CompanionApprovalsMonitor.shared.start(baseURL: base)
         }
         if !demoMode && !backgroundCheck { installOutsideClickMonitor() }
+        startBadgeWatch()
         if !backgroundCheck {
             let hotKey = GlobalHotKey { [weak self] in self?.panelController.toggle() }
             hotKey.register()
@@ -103,6 +122,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if store.isExpanded && !backgroundCheck {
             panelController.expand()
         }
+        Task { @MainActor in self.refreshStatusBadge() }
     }
 
     func application(_ application: NSApplication, open urls: [URL]) {
@@ -110,10 +130,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             if url.scheme == AppIdentity.urlScheme, url.host == "companion" {
                 let path = URLComponents(url: url, resolvingAgainstBaseURL: false)?
                     .queryItems?.first { $0.name == "path" }?.value
-                panelController.expand()
+                panelController.expand(fromMenuBar: store.settings.showIn == .menubar)
                 store.openCompanion(path: path)
             } else if let id = ChatLinks.chatId(from: url) {
-                panelController.expand()
+                panelController.expand(fromMenuBar: store.settings.showIn == .menubar)
                 store.openLinkedChat(id)
             }
         }
@@ -121,6 +141,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationWillTerminate(_ notification: Notification) {
         if let outsideMonitor { NSEvent.removeMonitor(outsideMonitor) }
+        if let settingsObserver {
+            DistributedNotificationCenter.default().removeObserver(settingsObserver)
+        }
+        if let panelSettingsObserver {
+            NotificationCenter.default.removeObserver(panelSettingsObserver)
+        }
         if let companionStatusObserver {
             DistributedNotificationCenter.default().removeObserver(companionStatusObserver)
         }
@@ -185,7 +211,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
               let target = CompanionConfig.cliTargetURL(base: requested, path: path) else { return }
         let instance = companionStatusInstance
         if !backgroundCheck {
-            panelController.expand()
+            panelController.expand(fromMenuBar: store.settings.showIn == .menubar)
         }
         CompanionWindowController.shared.open(baseURL: requested, path: path, allowAnyPath: true,
                                               activate: !backgroundCheck)
@@ -305,10 +331,33 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         return event
     }
 
+    private func statusItemAnchor() -> NSRect? {
+        guard statusItem != nil, let screen = NSScreen.main else { return nil }
+        let pid = Int(ProcessInfo.processInfo.processIdentifier)
+        guard let windows = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements],
+                                                       kCGNullWindowID) as? [[String: Any]] else { return nil }
+        for window in windows {
+            guard (window[kCGWindowOwnerPID as String] as? Int) == pid,
+                  (window[kCGWindowLayer as String] as? Int) == 25,
+                  let bounds = window[kCGWindowBounds as String] as? [String: Any],
+                  let x = bounds["X"] as? Double, let y = bounds["Y"] as? Double,
+                  let width = bounds["Width"] as? Double, let height = bounds["Height"] as? Double,
+                  width > 0, width <= 80, height > 0, height <= 60 else { continue }
+            return NSRect(x: x, y: screen.frame.maxY - y - height, width: width, height: height)
+        }
+        return nil
+    }
+
     private func setUpStatusItem() {
+        guard statusItem == nil else {
+            refreshStatusBadge()
+            return
+        }
         let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         if let button = item.button {
-            button.image = BrandIcon.statusBar()
+            button.image = BrandIcon.statusBar(unread: OllieBadge.current.unread > 0)
+            button.imagePosition = .imageLeft
+            button.title = OllieBadge.current.approvals > 0 ? " \(OllieBadge.current.approvals)" : ""
             button.action = #selector(statusItemClicked(_:))
             button.target = self
             button.sendAction(on: [.leftMouseUp, .rightMouseUp])
@@ -316,11 +365,49 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         statusItem = item
     }
 
+    private func applyShowInMode() {
+        if store.settings.showIn.showsMenuBar {
+            setUpStatusItem()
+        } else if let item = statusItem {
+            NSStatusBar.system.removeStatusItem(item)
+            statusItem = nil
+        }
+        refreshStatusBadge()
+        panelController.applyMode()
+        if store.settings.showIn.showsMenuBar {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { [weak self] in
+                MainActor.assumeIsolated { self?.panelController.applyMode() }
+            }
+        }
+    }
+
+    private func refreshStatusBadge() {
+        guard let button = statusItem?.button else { return }
+        let badge = OllieBadge.current
+        button.image = BrandIcon.statusBar(unread: badge.unread > 0)
+        button.imagePosition = .imageLeft
+        button.title = badge.approvals > 0 ? " \(badge.approvals)" : ""
+    }
+
+    private func startBadgeWatch() {
+        badgeWatch = store.$chats
+            .combineLatest(store.$previews, store.$lastSeen, store.$muted)
+            .receive(on: RunLoop.main)
+            .sink { [weak self] _ in
+                MainActor.assumeIsolated { self?.refreshUnreadBadge() }
+            }
+        refreshUnreadBadge()
+    }
+
+    private func refreshUnreadBadge() {
+        OllieBadge.setUnread(store.unreadCount)
+    }
+
     @objc private func statusItemClicked(_ sender: NSStatusBarButton) {
         if NSApp.currentEvent?.type == .rightMouseUp {
             showStatusMenu()
         } else {
-            panelController.toggle()
+            panelController.toggle(fromMenuBar: true)
         }
     }
 
@@ -339,11 +426,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     @objc private func openPanel() {
-        panelController.expand()
+        panelController.expand(fromMenuBar: true)
     }
 
     @objc private func openSettings() {
-        panelController.expand()
+        panelController.expand(fromMenuBar: true)
         store.showingSettings = true
     }
 

@@ -582,16 +582,7 @@ final class CompanionApprovalsMonitor: NSObject, WKNavigationDelegate, Observabl
           return { status: 0, contentType: '', body: String(error), url: '' };
         }
         """
-        let value: Any? = await withCheckedContinuation { continuation in
-            webView.callAsyncJavaScript(script, arguments: [:], in: nil, in: .page) { result in
-                switch result {
-                case .success(let value):
-                    continuation.resume(returning: value)
-                case .failure:
-                    continuation.resume(returning: nil)
-                }
-            }
-        }
+        let value: Any? = await runJavaScript(script)
         guard let reply = value as? [String: Any] else { return nil }
         return CompanionFetchReply(status: reply["status"] as? Int ?? 0,
                                    contentType: reply["contentType"] as? String ?? "",
@@ -623,21 +614,31 @@ final class CompanionApprovalsMonitor: NSObject, WKNavigationDelegate, Observabl
           return { status: 0, contentType: '', body: String(error), url: '' };
         }
         """
-        let value: Any? = await withCheckedContinuation { continuation in
-            webView.callAsyncJavaScript(script, arguments: [:], in: nil, in: .page) { result in
-                switch result {
-                case .success(let value):
-                    continuation.resume(returning: value)
-                case .failure:
-                    continuation.resume(returning: nil)
-                }
-            }
-        }
+        let value: Any? = await runJavaScript(script)
         guard let reply = value as? [String: Any] else { return nil }
         return CompanionFetchReply(status: reply["status"] as? Int ?? 0,
                                    contentType: reply["contentType"] as? String ?? "",
                                    body: reply["body"] as? String ?? "",
                                    url: reply["url"] as? String ?? "")
+    }
+
+    private static let fetchTimeout: TimeInterval = 15
+
+    private func runJavaScript(_ script: String) async -> Any? {
+        guard let webView else { return nil }
+        let gate = FetchGate()
+        return await withCheckedContinuation { continuation in
+            gate.set(continuation)
+            webView.callAsyncJavaScript(script, arguments: [:], in: nil, in: .page) { result in
+                switch result {
+                case .success(let value): gate.finish(value)
+                case .failure: gate.finish(nil)
+                }
+            }
+            DispatchQueue.main.asyncAfter(deadline: .now() + Self.fetchTimeout) {
+                gate.finish(nil)
+            }
+        }
     }
 
     private func poll() async {
@@ -741,5 +742,28 @@ final class CompanionApprovalsMonitor: NSObject, WKNavigationDelegate, Observabl
             body: body,
             id: approval.id,
             path: approval.clickPath)
+    }
+}
+
+
+private final class FetchGate {
+    private let lock = NSLock()
+    private var continuation: CheckedContinuation<Any?, Never>?
+    private var finished = false
+
+    func set(_ continuation: CheckedContinuation<Any?, Never>) {
+        lock.lock()
+        self.continuation = continuation
+        lock.unlock()
+    }
+
+    func finish(_ value: Any?) {
+        lock.lock()
+        guard !finished else { lock.unlock(); return }
+        finished = true
+        let continuation = continuation
+        self.continuation = nil
+        lock.unlock()
+        continuation?.resume(returning: value)
     }
 }

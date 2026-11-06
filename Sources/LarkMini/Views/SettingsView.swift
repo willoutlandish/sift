@@ -24,6 +24,7 @@ struct SettingsView: View {
                     notificationSection
                     larkPopupsSection
                     appearanceSection
+                    locationSection
                     behaviourSection
                     DisclosureGroup("Lark app credentials") { credentialsSection.padding(.top, 12) }
                         .font(.system(size: 12, weight: .medium))
@@ -152,6 +153,32 @@ struct SettingsView: View {
             .toggleStyle(.switch)
             .controlSize(.small)
         }
+    }
+
+    private var locationSection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            sectionTitle("Show Ollie in")
+            ForEach(ShowIn.allCases) { option in
+                locationRow(option)
+            }
+            Text("Menu bar only hides the floating edge head. The menu bar duck opens the panel under its icon.")
+                .font(.system(size: 11)).foregroundStyle(SiftStyle.secondary)
+        }
+    }
+
+    private func locationRow(_ option: ShowIn) -> some View {
+        let selected = store.settings.showIn == option
+        return Button {
+            store.updateSettings { $0.showIn = option }
+        } label: {
+            HStack(spacing: 8) {
+                Image(systemName: selected ? "checkmark.circle.fill" : "circle")
+                    .foregroundStyle(selected ? accent : SiftStyle.secondary)
+                Text(option.label).font(.system(size: 12))
+                    .foregroundStyle(selected ? Color.white : SiftStyle.secondary)
+            }
+        }
+        .buttonStyle(.plain)
     }
 
     private var behaviourSection: some View {

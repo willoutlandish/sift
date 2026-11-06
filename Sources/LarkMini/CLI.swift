@@ -36,6 +36,7 @@ enum CLI {
             case "pins": return try await pins(rest)
             case "control": return try await control(rest)
             case "doctor": return try await doctor(rest)
+            case "settings": return settingsCommand(rest)
             case "open": return openApp()
             case "selftest": return selftest()
             case "help", "--help", "-h": print(usage); return 0
@@ -219,6 +220,22 @@ enum CLI {
             ]
         }
         return ok(["ok": true, "count": rows.count, "has_more": page.next != nil, "messages": rows])
+    }
+
+    private static func settingsCommand(_ args: [String]) -> Int32 {
+        guard args.first == "set" else { return fail("settings needs set --show-in menubar|edge|both") }
+        let flags = Flags(Array(args.dropFirst()))
+        guard let raw = flags.value("--show-in") else {
+            return fail("settings set needs --show-in menubar|edge|both")
+        }
+        guard let mode = ShowIn(rawValue: raw) else {
+            return fail("--show-in must be menubar, edge or both")
+        }
+        StateFile.shared.update { $0.settings.showIn = mode }
+        DistributedNotificationCenter.default().post(
+            name: .appSettingsChanged, object: nil,
+            userInfo: ["home": AppPaths.supportDirectory.path])
+        return ok(["ok": true, "show_in": mode.rawValue])
     }
 
     private static func pins(_ args: [String]) async throws -> Int32 {
@@ -444,7 +461,7 @@ enum CLI {
                 "home": directory.path
             ]
         )
-        let deadline = Date().addingTimeInterval(CompanionProbeCoordinator.probeTimeout + 1)
+        let deadline = Date().addingTimeInterval(CompanionProbeCoordinator.probeTimeout + 2)
         var sawResponse = false
         var firstResponseAt: Date?
         var reply = CompanionSessionReply()
@@ -486,7 +503,7 @@ enum CLI {
             name: .companionPaceRequest,
             object: nil,
             userInfo: ["id": request, "url": base.absoluteString, "home": directory.path])
-        let deadline = Date().addingTimeInterval(4)
+        let deadline = Date().addingTimeInterval(CompanionProbeCoordinator.probeTimeout + 8)
         while Date() < deadline {
             if let files = try? fileManager.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil) {
                 for file in files where file.lastPathComponent.hasPrefix(prefix) {
@@ -679,6 +696,7 @@ enum CLI {
       companion Open the real Companion web app in its own Ollie window
                   set --url http://host:port
                   status | pace | open [--path /same-origin/path]
+      settings  set --show-in menubar|edge|both
       doctor    Check credentials, token and chat access
       open      Open the Ollie app
       logout    Forget the current session

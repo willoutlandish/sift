@@ -215,6 +215,7 @@ final class Store: ObservableObject {
         copy.panelWidth = Settings.validWidth(copy.panelWidth)
         settings = copy
         stateFile.update { $0.settings = copy }
+        NotificationCenter.default.post(name: .panelSettingsChanged, object: nil)
     }
 
     /// Picks up pins, settings and sign-in changes written by the CLI.
@@ -225,6 +226,7 @@ final class Store: ObservableObject {
             settings = state.settings
             settings.panelWidth = Settings.validWidth(settings.panelWidth)
             if settings != state.settings { stateFile.update { $0.settings = settings } }
+            NotificationCenter.default.post(name: .panelSettingsChanged, object: nil)
         }
         if state.pinned != pinned { pinned = state.pinned }
         if state.lastSeen != lastSeen { lastSeen = state.lastSeen }
@@ -268,6 +270,7 @@ final class Store: ObservableObject {
 
     private func tick() async {
         guard !isDemo else { return }
+        reloadState()
         tickCount += 1
         // A slow Control read must never hold up Lark polling.
         if controlSeat != nil, controlWatch == nil, tickCount % 3 == 1, !controlBusy { Task { await refreshControl() } }

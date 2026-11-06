@@ -173,11 +173,28 @@ struct DeviceCode: Equatable {
     let expiresIn: Int
 }
 
+enum ShowIn: String, Codable, CaseIterable, Identifiable {
+    case menubar
+    case edge
+    case both
+
+    var id: String { rawValue }
+    var label: String {
+        switch self {
+        case .menubar: return "Menu bar only"
+        case .edge: return "Screen edge only"
+        case .both: return "Both"
+        }
+    }
+    var showsMenuBar: Bool { self != .edge }
+    var showsEdgeHead: Bool { self != .menubar }
+}
+
 struct Settings: Codable, Equatable {
     init() {}
 
     private enum CodingKeys: String, CodingKey {
-        case pollSeconds, panelWidth, accent, collapseOnOutsideClick, showPreviewText, launchAtLogin, showLarkPopups
+        case pollSeconds, panelWidth, accent, collapseOnOutsideClick, showPreviewText, launchAtLogin, showLarkPopups, showIn
     }
 
     init(from decoder: Decoder) throws {
@@ -189,6 +206,7 @@ struct Settings: Codable, Equatable {
         showPreviewText = try container.decodeIfPresent(Bool.self, forKey: .showPreviewText) ?? true
         launchAtLogin = try container.decodeIfPresent(Bool.self, forKey: .launchAtLogin) ?? false
         showLarkPopups = try container.decodeIfPresent(Bool.self, forKey: .showLarkPopups) ?? false
+        showIn = try container.decodeIfPresent(ShowIn.self, forKey: .showIn) ?? .menubar
     }
 
     static func validWidth(_ value: Double) -> Double {
@@ -202,6 +220,7 @@ struct Settings: Codable, Equatable {
     var showPreviewText: Bool = true
     var launchAtLogin: Bool = false
     var showLarkPopups: Bool = false
+    var showIn: ShowIn = .menubar
 }
 
 struct ChatToast: Identifiable, Equatable {

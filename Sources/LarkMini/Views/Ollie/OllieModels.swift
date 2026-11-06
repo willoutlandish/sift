@@ -139,7 +139,10 @@ struct OllieTodayModel: Equatable {
         let needYou = snapshot?.total
 
         var parts: [String] = []
-        if let onPace, let totalPace, let behind {
+        if paceAvailable, !shops.isEmpty, !paceShops.contains(where: { $0.mtd != nil }) {
+            let noun = shops.count == 1 ? "shop" : "shops"
+            parts.append("No sales data yet for \(shops.count) \(noun)")
+        } else if let onPace, let totalPace, let behind {
             parts.append("\(onPace) of \(totalPace) shops on pace")
             parts.append("\(behind) behind")
         }
@@ -203,6 +206,12 @@ struct OllieTodayModel: Equatable {
 
 struct OllieActivityNode: Equatable {
     let agent: CompanionActivityAgent
+
+    var title: String {
+        let role = agent.role?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        guard !role.isEmpty else { return agent.name }
+        return role.replacingOccurrences(of: "-", with: " ").lowercased()
+    }
 
     var tone: OllieTone {
         switch agent.state {
@@ -303,7 +312,7 @@ struct OllieApprovalsModel: Equatable {
                 if !batches.contains(where: { $0.id == key }) {
                     let label = item.categoryLabel
                     batches.append(OllieApprovalBatch(source: item.source, kind: item.kind,
-                                                       label: "\(group.count) \(label.lowercased())",
+                                                       label: Self.batchLabel(label, count: group.count),
                                                        items: group))
                 }
             } else {
@@ -320,6 +329,19 @@ struct OllieApprovalsModel: Equatable {
         self.newer = singles.filter { !$0.isOlder }
         self.older = singles.filter(\.isOlder)
         self.selectedCategory = category
+    }
+
+    static func batchLabel(_ label: String, count: Int) -> String {
+        let lower = label.lowercased()
+        guard count != 1 else { return "\(count) \(lower)" }
+        if lower.hasSuffix("s") { return "\(count) \(lower)" }
+        if lower.hasSuffix("ch") || lower.hasSuffix("sh") || lower.hasSuffix("x") {
+            return "\(count) \(lower)es"
+        }
+        if lower.hasSuffix("y") {
+            return "\(count) \(lower.dropLast())ies"
+        }
+        return "\(count) \(lower)s"
     }
 
     static func isOverdue(_ item: CompanionTodoItem, now: Date = Date()) -> Bool {

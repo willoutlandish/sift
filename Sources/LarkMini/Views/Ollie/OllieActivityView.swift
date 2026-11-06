@@ -121,7 +121,7 @@ struct OllieActivityView: View {
                             .padding(.horizontal, 7).padding(.vertical, 1)
                             .overlay(Capsule().strokeBorder(node.tone.color, lineWidth: 1))
                     }
-                    Text(agent.name).font(.system(size: 12.5, weight: .semibold))
+                    Text(node.title).font(.system(size: 12.5, weight: .semibold))
                         .foregroundStyle(OllieStyle.text).lineLimit(1)
                     Spacer(minLength: 0)
                 }

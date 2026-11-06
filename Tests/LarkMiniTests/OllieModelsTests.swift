@@ -63,6 +63,20 @@ final class OllieModelsTests: XCTestCase {
         XCTAssertNotEqual(usd?.pace.mtd, 350, "currencies must never be added together")
     }
 
+
+    func testTodaySaysNoSalesDataWhenEveryShopIsEmpty() {
+        let pace: [String: CompanionShopPace] = [
+            "a": CompanionShopPace(resource: "a", name: "A", currency: "USD",
+                                   mtd: nil, goal: 100, expectedByToday: nil, gap: nil,
+                                   progressPct: nil, paceStatus: "no_data", basis: "total"),
+            "b": CompanionShopPace(resource: "b", name: "B", currency: "USD",
+                                   mtd: nil, goal: 200, expectedByToday: nil, gap: nil,
+                                   progressPct: nil, paceStatus: "no_data", basis: "total")
+        ]
+        let model = OllieTodayModel(pace: pace, paceState: .available, snapshot: nil, activity: [:])
+        XCTAssertEqual(model.summary, "No sales data yet for 2 shops")
+    }
+
     func testTodaySummaryOmitsUnavailableSources() {
         let pace: [String: CompanionShopPace] = [
             "one": CompanionShopPace(resource: "one", name: "One", currency: "USD",
@@ -106,6 +120,7 @@ final class OllieModelsTests: XCTestCase {
         XCTAssertEqual(agents.count, 2)
         let working = agents[0]
         XCTAssertEqual(working.state, "working")
+        XCTAssertEqual(OllieActivityNode(agent: working).title, "creator manager")
         XCTAssertEqual(working.lastRunSummary, "Picked creators")
         XCTAssertEqual(working.sparkline, [.ok, .partial, .failed])
         XCTAssertEqual(working.runs48h, 55)
@@ -143,6 +158,7 @@ final class OllieModelsTests: XCTestCase {
         XCTAssertEqual(model.doThisFirst?.id, "a")
         XCTAssertEqual(model.batches.count, 1)
         XCTAssertEqual(model.batches[0].items.map(\.id), ["b", "c"])
+        XCTAssertEqual(model.batches[0].label, "2 creator samples")
         XCTAssertEqual(model.older.map(\.id), ["d"])
         XCTAssertEqual(model.newer.map(\.id), [])
         XCTAssertEqual(model.categories.map(\.label), ["Creator Sample", "Money"])

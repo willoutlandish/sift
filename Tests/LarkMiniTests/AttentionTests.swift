@@ -67,4 +67,31 @@ final class PanelPositionTests: XCTestCase {
         XCTAssertTrue(PanelGeometry.docks(NSRect(x: 1055, y: 300, width: 400, height: 560), in: screen, margin: 12))
         XCTAssertFalse(PanelGeometry.docks(NSRect(x: 342, y: 117, width: 400, height: 560), in: screen, margin: 12))
     }
+
+    func testShowInControlsHeadAndMenuBarAndDefaultsToMenuBar() throws {
+        XCTAssertEqual(Settings().showIn, .menubar)
+        XCTAssertFalse(ShowIn.menubar.showsEdgeHead)
+        XCTAssertTrue(ShowIn.menubar.showsMenuBar)
+        XCTAssertTrue(ShowIn.edge.showsEdgeHead)
+        XCTAssertFalse(ShowIn.edge.showsMenuBar)
+        XCTAssertTrue(ShowIn.both.showsEdgeHead)
+        XCTAssertTrue(ShowIn.both.showsMenuBar)
+        let legacy = try JSONDecoder().decode(Settings.self, from: Data("{}".utf8))
+        XCTAssertEqual(legacy.showIn, .menubar)
+    }
+
+    func testMenuBarPanelAnchorsUnderTheStatusItemAndClampsOnSmallScreens() {
+        let screen = NSRect(x: 0, y: 0, width: 1440, height: 875)
+        let anchor = NSRect(x: 800, y: 875, width: 24, height: 24)
+        let panel = PanelGeometry.underStatusItem(size: NSSize(width: 400, height: 560),
+                                                  anchor: anchor, in: screen, margin: 12)
+        XCTAssertEqual(panel, NSRect(x: 612, y: 303, width: 400, height: 560))
+
+        let small = NSRect(x: 0, y: 0, width: 500, height: 300)
+        let smallAnchor = NSRect(x: 450, y: 300, width: 20, height: 20)
+        let clamped = PanelGeometry.underStatusItem(size: NSSize(width: 400, height: 560),
+                                                    anchor: smallAnchor, in: small, margin: 12)
+        XCTAssertEqual(clamped, NSRect(x: 88, y: 12, width: 400, height: 276))
+    }
+
 }
