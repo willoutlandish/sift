@@ -131,6 +131,54 @@ enum CompanionSession {
 }
 
 @MainActor
+final class CompanionProbeCoordinator {
+    struct Result: Equatable {
+        let signedIn: Bool
+        let cookiePresent: Bool
+        let checkedAt: Date
+    }
+
+    typealias CookieCheck = @MainActor (URL, @escaping (Bool) -> Void) -> Void
+    typealias SignInCheck = @MainActor (URL, @escaping (Bool) -> Void) -> Void
+
+    nonisolated static let cacheLifetime: TimeInterval = 30
+    nonisolated static let probeTimeout: TimeInterval = 4
+
+    private let cookieCheck: CookieCheck
+    private let signInCheck: SignInCheck
+    private var cached: (url: String, result: Result)?
+    private var running = false
+    private var waiters: [(Result) -> Void] = []
+
+    init(cookieCheck: @escaping CookieCheck, signInCheck: @escaping SignInCheck) {
+        self.cookieCheck = cookieCheck
+        self.signInCheck = signInCheck
+    }
+
+    func check(baseURL: URL, completion: @escaping (Result) -> Void) {
+        let key = baseURL.absoluteString
+        if let cached, cached.url == key, Date().timeIntervalSince(cached.result.checkedAt) < Self.cacheLifetime {
+            completion(cached.result)
+            return
+        }
+        waiters.append(completion)
+        guard !running else { return }
+        running = true
+        cookieCheck(baseURL) { [weak self] cookiePresent in
+            guard let self else { return }
+            self.signInCheck(baseURL) { signedIn in
+                let result = Result(signedIn: signedIn, cookiePresent: cookiePresent, checkedAt: Date())
+                self.cached = (key, result)
+                self.running = false
+                let waiters = self.waiters
+                self.waiters = []
+                waiters.forEach { $0(result) }
+            }
+        }
+    }
+}
+
+@MainActor
 final class CompanionSignInProbe: NSObject, WKNavigationDelegate {
     private let webView: WKWebView
     private var completion: ((Bool) -> Void)?
@@ -145,12 +193,12 @@ final class CompanionSignInProbe: NSObject, WKNavigationDelegate {
         webView.navigationDelegate = self
     }
 
-    func check(baseURL: URL, completion: @escaping (Bool) -> Void) {
+    func check(baseURL: URL, timeoutAfter: TimeInterval, completion: @escaping (Bool) -> Void) {
         self.completion = completion
         let target = CompanionConfig.targetURL(base: baseURL, path: nil) ?? baseURL
         let timeout = DispatchWorkItem { [weak self] in self?.finish(signedIn: false) }
         self.timeout = timeout
-        DispatchQueue.main.asyncAfter(deadline: .now() + 3, execute: timeout)
+        DispatchQueue.main.asyncAfter(deadline: .now() + timeoutAfter, execute: timeout)
         webView.load(URLRequest(url: target))
     }
 
@@ -166,6 +214,10 @@ final class CompanionSignInProbe: NSObject, WKNavigationDelegate {
         timeout?.cancel()
         completion?(signedIn)
         completion = nil
+    }
+
+    func webView(_ webView: WKWebView, didCommit navigation: WKNavigation!) {
+        finish(signedIn: !Self.isSignIn(webView.url))
     }
 
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {

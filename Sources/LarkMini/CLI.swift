@@ -442,12 +442,14 @@ enum CLI {
                 "home": directory.path
             ]
         )
-        let deadline = Date().addingTimeInterval(4)
+        let deadline = Date().addingTimeInterval(CompanionProbeCoordinator.probeTimeout + 1)
         var sawResponse = false
+        var firstResponseAt: Date?
         var reply = CompanionSessionReply()
         while Date() < deadline {
             if let files = try? fileManager.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil) {
                 for file in files where file.lastPathComponent.hasPrefix(prefix) {
+                    if firstResponseAt == nil { firstResponseAt = Date() }
                     sawResponse = true
                     if let data = try? Data(contentsOf: file),
                        let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
@@ -458,6 +460,7 @@ enum CLI {
                 }
             }
             if reply.signedIn { break }
+            if sawResponse, let firstResponseAt, Date().timeIntervalSince(firstResponseAt) > 0.3 { break }
             Thread.sleep(forTimeInterval: 0.05)
         }
         if let files = try? fileManager.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil) {

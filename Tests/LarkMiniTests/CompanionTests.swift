@@ -66,6 +66,43 @@ final class CompanionTests: XCTestCase {
         XCTAssertNil(CompanionConfig.cliTargetURL(base: base, path: "//example.com/e2e/auth"))
     }
 
+
+    @MainActor
+    func testProbeCoordinatorCoalescesConcurrentChecksAndCaches() {
+        var cookieCalls = 0
+        var signInCalls = 0
+        var release: ((Bool) -> Void)?
+        let coordinator = CompanionProbeCoordinator(
+            cookieCheck: { _, completion in
+                cookieCalls += 1
+                completion(true)
+            },
+            signInCheck: { _, completion in
+                signInCalls += 1
+                release = completion
+            }
+        )
+        let base = URL(string: "http://100.113.131.96:8090")!
+        var first: CompanionProbeCoordinator.Result?
+        var second: CompanionProbeCoordinator.Result?
+
+        coordinator.check(baseURL: base) { first = $0 }
+        coordinator.check(baseURL: base) { second = $0 }
+        XCTAssertEqual(cookieCalls, 1)
+        XCTAssertEqual(signInCalls, 1)
+
+        release?(true)
+        XCTAssertEqual(first?.signedIn, true)
+        XCTAssertEqual(first?.cookiePresent, true)
+        XCTAssertEqual(second?.signedIn, true)
+
+        var third: CompanionProbeCoordinator.Result?
+        coordinator.check(baseURL: base) { third = $0 }
+        XCTAssertEqual(cookieCalls, 1)
+        XCTAssertEqual(signInCalls, 1)
+        XCTAssertEqual(third?.signedIn, true)
+    }
+
     func testSignInProbeRejectsSignInPaths() {
         XCTAssertTrue(CompanionSignInProbe.isSignIn(URL(string: "http://100.113.131.96:8090/outlandish/sign-in")!))
         XCTAssertTrue(CompanionSignInProbe.isSignIn(URL(string: "http://100.113.131.96:8090/login")!))

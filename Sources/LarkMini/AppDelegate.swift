@@ -16,6 +16,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var companionOpenObserver: NSObjectProtocol?
     private var companionProbes: [CompanionSignInProbe] = []
     private let companionStatusInstance = UUID().uuidString
+    private lazy var companionProbe = CompanionProbeCoordinator(
+        cookieCheck: { baseURL, completion in
+            CompanionSession.sessionCookieExists(for: baseURL) { exists in
+                Task { @MainActor in completion(exists) }
+            }
+        },
+        signInCheck: { [weak self] baseURL, completion in
+            guard let self else { completion(false); return }
+            let probe = CompanionSignInProbe()
+            self.companionProbes.append(probe)
+            probe.check(baseURL: baseURL, timeoutAfter: CompanionProbeCoordinator.probeTimeout) { signedIn in
+                self.companionProbes.removeAll { $0 === probe }
+                completion(signedIn)
+            }
+        }
+    )
 
     init(demo: Bool, openDemoChat: Bool = false, openDemoControl: Bool = false, openDemoSearch: Bool = false, demoNeedsYou: Bool = false) {
         demoMode = demo
@@ -97,23 +113,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
               let configured = StateFile.shared.reload().companionURL.flatMap(CompanionConfig.validatedURL),
               requested.absoluteString == configured.absoluteString else { return }
         let instance = companionStatusInstance
-        CompanionSession.sessionCookieExists(for: requested) { cookiePresent in
-            Task { @MainActor [weak self] in
-                guard let self else { return }
-                let probe = CompanionSignInProbe()
-                self.companionProbes.append(probe)
-                probe.check(baseURL: requested) { signedIn in
-                    Task { @MainActor [weak self, weak probe] in
-                        guard let self else { return }
-                        if let probe { self.companionProbes.removeAll { $0 === probe } }
-                        let file = AppPaths.supportDirectory
-                            .appendingPathComponent("companion-status-\(id)-\(instance).json")
-                        let payload: [String: Any] = ["signed_in": signedIn, "cookie_present": cookiePresent]
-                        guard let data = try? JSONSerialization.data(withJSONObject: payload) else { return }
-                        try? data.write(to: file, options: .atomic)
-                    }
-                }
-            }
+        companionProbe.check(baseURL: requested) { result in
+            let file = AppPaths.supportDirectory
+                .appendingPathComponent("companion-status-\(id)-\(instance).json")
+            let payload: [String: Any] = ["signed_in": result.signedIn, "cookie_present": result.cookiePresent]
+            guard let data = try? JSONSerialization.data(withJSONObject: payload) else { return }
+            try? data.write(to: file, options: .atomic)
         }
     }
 
