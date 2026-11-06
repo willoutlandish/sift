@@ -24,6 +24,16 @@ struct CompanionApprovalsList: Decodable {
         struct ShopRef: Decodable { let resource: String?; let name: String? }
         struct Recommendation: Decodable { let text: String?; let value: String? }
         struct Evidence: Decodable { let label: String?; let text: String?; let url: String? }
+        struct Priority: Decodable {
+            struct Target: Decodable { let state: String? }
+            let score: Double?
+            let band: String?
+            let risk: String?
+            let risk_reason: String?
+            let reasons: [String]?
+            let tip: String?
+            let target: Target?
+        }
 
         let id: String
         let source: String?
@@ -49,6 +59,11 @@ struct CompanionApprovalsList: Decodable {
         let preview: String?
         let evidence: [Evidence]?
         let link: String?
+        let priority: Priority?
+        let expires_at: String?
+        let opened_at: String?
+        let waiting_on: String?
+        let mine: Bool?
     }
 
     let shops: [Shop]
@@ -84,6 +99,41 @@ struct CompanionTodoItem: Identifiable, Equatable {
     let disabledReason: String?
     let payloadPreview: String?
     let decision: CompanionDecisionTarget?
+    let source: String
+    let kind: String
+    let statusReason: String?
+    let needsYouBecause: String?
+    let priorityBand: String?
+    let priorityReasons: [String]
+    let priorityTip: String?
+    let expiresAt: String?
+    let ageSeconds: Int?
+    let recommendation: String?
+    let shopName: String
+    let resource: String
+
+    var categoryKey: String {
+        let raw = kind.isEmpty ? source : kind
+        return raw.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    var categoryLabel: String {
+        let raw = categoryKey
+        guard !raw.isEmpty else { return "Other" }
+        return raw.replacingOccurrences(of: "_", with: " ")
+            .replacingOccurrences(of: "-", with: " ")
+            .split(separator: " ")
+            .map { $0.prefix(1).uppercased() + $0.dropFirst() }
+            .joined(separator: " ")
+    }
+
+    var reason: String? {
+        [statusReason, needsYouBecause, recommendation, priorityReasons.first]
+            .compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .first { !$0.isEmpty }
+    }
+
+    var isOlder: Bool { (ageSeconds ?? 0) >= 7 * 86_400 }
 }
 
 struct CompanionDecisionRequest: Equatable {
@@ -105,6 +155,7 @@ struct CompanionTodoShop: Identifiable, Equatable {
     let name: String
     let pending: Int
     let items: [CompanionTodoItem]
+    let allItems: [CompanionTodoItem]
     let more: Int
 
     var id: String { resource.isEmpty ? name : resource }
@@ -113,6 +164,7 @@ struct CompanionTodoShop: Identifiable, Equatable {
 struct CompanionTodoSnapshot: Equatable {
     let total: Int
     let shops: [CompanionTodoShop]
+    let orderedItems: [CompanionTodoItem]
 
     var isEmpty: Bool { total == 0 }
 }
@@ -191,6 +243,7 @@ enum CompanionTodos {
                 for item in service.items {
                     guard !item.id.isEmpty else { continue }
                     let resource = nonEmpty(item.shop?.resource) ?? nonEmpty(shop.resource)
+                    let shopName = nonEmpty(item.shop?.name) ?? nonEmpty(shop.name)
                     let label = nonEmpty(item.agent?.label) ?? nonEmpty(service.label) ?? "An agent"
                     let title = nonEmpty(item.question) ?? nonEmpty(item.kind) ?? nonEmpty(item.source) ?? "Approval"
                     let offered = item.answers ?? (item.can_decide == true ? ["approve", "skip"] : [])
@@ -216,7 +269,19 @@ enum CompanionTodos {
                         disabledReason: item.content_clear == false
                             ? "This reply has nothing to send. Skip it or ask for a change." : nil,
                         payloadPreview: preview,
-                        decision: target)
+                        decision: target,
+                        source: item.source ?? "",
+                        kind: item.kind ?? "",
+                        statusReason: item.status_reason,
+                        needsYouBecause: item.needs_you_because,
+                        priorityBand: item.priority?.band,
+                        priorityReasons: item.priority?.reasons ?? [],
+                        priorityTip: item.priority?.tip,
+                        expiresAt: item.expires_at,
+                        ageSeconds: item.age_seconds,
+                        recommendation: item.recommendation?.text,
+                        shopName: shopName ?? shop.name,
+                        resource: resource ?? shop.resource)
                     items.append((items.count, todo))
                 }
             }
@@ -231,10 +296,19 @@ enum CompanionTodos {
             shops.append(CompanionTodoShop(resource: shop.resource, name: shop.name,
                                            pending: ordered.count,
                                            items: Array(ordered.prefix(pageSize)),
+                                           allItems: ordered,
                                            more: max(0, ordered.count - pageSize)))
         }
 
-        return CompanionTodoSnapshot(total: list.counts?.pending ?? collected, shops: shops)
+        let allItems = shops.flatMap(\.allItems)
+        let orderedItems = allItems.sorted { left, right in
+            let leftRank = ranks[left.id] ?? Int.max
+            let rightRank = ranks[right.id] ?? Int.max
+            if leftRank != rightRank { return leftRank < rightRank }
+            return false
+        }
+        return CompanionTodoSnapshot(total: list.counts?.pending ?? collected,
+                                     shops: shops, orderedItems: orderedItems)
     }
 
     static func ageText(_ seconds: Int?) -> String {
@@ -281,6 +355,22 @@ enum CompanionDecisionRequests {
                 ])
         }
     }
+
+    static func batchRequest(items: [CompanionTodoItem], answer: String) -> CompanionDecisionRequest? {
+        guard !items.isEmpty else { return nil }
+        var rows: [[String: Any]] = []
+        for item in items {
+            guard let target = item.decision, target.api == .answers, item.canAnswer else { return nil }
+            rows.append([
+                "id": target.id,
+                "version": target.version ?? NSNull(),
+                "send_version": target.sendVersion ?? NSNull()
+            ])
+        }
+        return CompanionDecisionRequest(
+            path: "/api/oo/approvals/answer",
+            body: ["items": rows, "answer": answer])
+    }
 }
 
 enum CompanionDecisionOutcomeParser {
@@ -317,6 +407,24 @@ enum CompanionDecisionOutcomeParser {
             return CompanionDecisionOutcome(message: answer == "approve" ? "Approved" : "Declined", remove: true)
         }
     }
+
+    static func batchOutcome(itemIds: [String], answer: String, reply: CompanionFetchReply?) -> CompanionDecisionOutcome {
+        guard let reply else { return CompanionDecisionOutcome(message: "Couldn't reach Companion.", remove: false) }
+        guard reply.status == 200,
+              let data = reply.body.data(using: .utf8),
+              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let results = object["results"] as? [[String: Any]] else {
+            return CompanionDecisionOutcome(message: "Couldn't save those decisions.", remove: false)
+        }
+        let failures = results.filter { ($0["status"] as? String) != "ok" }
+        if let first = failures.first {
+            let message = first["message"] as? String
+            return CompanionDecisionOutcome(message: message ?? "Couldn't save every decision.", remove: false)
+        }
+        let count = itemIds.count
+        return CompanionDecisionOutcome(message: answer == "approve" ? "Approved \(count)" : "Declined \(count)",
+                                        remove: true)
+    }
 }
 
 @MainActor
@@ -324,12 +432,26 @@ final class CompanionApprovalsActions {
     static let shared = CompanionApprovalsActions()
 
     func submit(item: CompanionTodoItem, answer: String) async -> CompanionDecisionOutcome {
+        if CompanionApprovalsMonitor.shared.isReadOnly {
+            return CompanionDecisionOutcome(message: CompanionWriteGuard.refusal, remove: false)
+        }
         guard let request = CompanionDecisionRequests.decisionRequest(item: item, answer: answer),
               let api = item.decision?.api else {
             return CompanionDecisionOutcome(message: "This item can't be answered here.", remove: false)
         }
         let reply = await CompanionApprovalsMonitor.shared.postJSON(path: request.path, body: request.body)
         return CompanionDecisionOutcomeParser.outcome(api: api, itemId: item.id, answer: answer, reply: reply)
+    }
+
+    func submitBatch(items: [CompanionTodoItem], answer: String) async -> CompanionDecisionOutcome {
+        if CompanionApprovalsMonitor.shared.isReadOnly {
+            return CompanionDecisionOutcome(message: CompanionWriteGuard.refusal, remove: false)
+        }
+        guard let request = CompanionDecisionRequests.batchRequest(items: items, answer: answer) else {
+            return CompanionDecisionOutcome(message: "These items can't be answered here.", remove: false)
+        }
+        let reply = await CompanionApprovalsMonitor.shared.postJSON(path: request.path, body: request.body)
+        return CompanionDecisionOutcomeParser.batchOutcome(itemIds: items.map(\.id), answer: answer, reply: reply)
     }
 }
 
@@ -374,6 +496,8 @@ final class CompanionApprovalsMonitor: NSObject, WKNavigationDelegate, Observabl
     private var polling = false
     private var paceRefreshing = false
     private let seenStore = CompanionApprovalsSeenStore()
+
+    var isReadOnly: Bool { CompanionWriteGuard.isReadOnly(baseURL: baseURL) }
 
     func start(baseURL: URL) {
         if self.baseURL == baseURL, webView != nil { return }
@@ -476,6 +600,7 @@ final class CompanionApprovalsMonitor: NSObject, WKNavigationDelegate, Observabl
     }
 
     func postJSON(path: String, body: [String: Any]) async -> CompanionFetchReply? {
+        guard !isReadOnly else { return nil }
         guard let webView, baseURL != nil else { return nil }
         guard let pathData = try? JSONSerialization.data(withJSONObject: [path]),
               let pathArray = String(data: pathData, encoding: .utf8),

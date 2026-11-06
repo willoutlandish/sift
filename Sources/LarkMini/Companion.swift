@@ -181,8 +181,11 @@ struct CompanionNavigationPolicy: Equatable {
     }
 
     func windowOpenDecision(for url: URL, topURL: URL?) -> WindowOpenDecision {
-        if let topURL, isAuthURL(topURL) { return .deny }
-        if isAuthURL(url) || isSignInCallback(url) { return .deny }
+        if let topURL, isAuthURL(topURL), !isOutlandishIdAuthURL(url), !isSignInCallback(url) {
+            return .deny
+        }
+        if isOutlandishIdAuthURL(url) || isSignInCallback(url) { return .loadInCompanion }
+        if isAuthURL(url) { return .deny }
         if isBaseOrigin(url) { return .loadInCompanion }
         if url.scheme?.lowercased() == "https", url.user == nil, url.password == nil {
             return .openExternally
@@ -190,12 +193,22 @@ struct CompanionNavigationPolicy: Equatable {
         return .deny
     }
 
+    func isOutlandishIdAuthURL(_ url: URL?) -> Bool {
+        guard let url, url.scheme?.lowercased() == "https",
+              url.port == nil, url.user == nil, url.password == nil,
+              let host = url.host?.lowercased() else { return false }
+        return host == "api.workos.com"
+            || host == "accounts.google.com"
+            || host == "login.microsoftonline.com"
+            || host == "login.live.com"
+            || Self.isAuthKitHost(host)
+    }
+
     func isAuthURL(_ url: URL?) -> Bool {
         guard let url, url.scheme?.lowercased() == "https",
               url.port == nil, url.user == nil, url.password == nil,
               let host = url.host?.lowercased() else { return false }
-        if host == "api.workos.com" || host == "accounts.google.com" { return true }
-        if Self.isAuthKitHost(host) { return true }
+        if isOutlandishIdAuthURL(url) { return true }
         switch host {
         case "accounts.larksuite.com":
             return url.path.hasPrefix("/accounts/") || url.path == "/open-apis/authen/v1/authorize"
@@ -238,6 +251,16 @@ struct CompanionNavigationPolicy: Equatable {
 
     private func defaultPort(_ url: URL) -> Int? {
         url.port ?? (url.scheme?.lowercased() == "https" ? 443 : 80)
+    }
+}
+
+enum CompanionWriteGuard {
+    static let productionHosts: Set<String> = ["outlandishdigital.us", "www.outlandishdigital.us"]
+    static let refusal = "Ollie Dev is read-only on production. Use your real Ollie to approve."
+
+    static func isReadOnly(baseURL: URL?, development: Bool = AppIdentity.isDevelopment) -> Bool {
+        guard development, let host = baseURL?.host?.lowercased() else { return false }
+        return productionHosts.contains(host)
     }
 }
 

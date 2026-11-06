@@ -111,6 +111,41 @@ enum CompanionPace {
         shopResource.caseInsensitiveCompare(pace.resource) == .orderedSame || shopName == pace.name
     }
 
+    static func compactMoney(_ value: Double?, currency: String?, signed: Bool = false) -> String {
+        guard let value else { return "" }
+        let sign = value < 0 ? "−" : (signed ? "+" : "")
+        let magnitude = abs(value)
+        let number: String
+        if magnitude >= 1_000_000 {
+            number = String(format: "%.1fm", magnitude / 1_000_000)
+        } else if magnitude >= 1_000 {
+            number = String(format: "%.1fk", magnitude / 1_000)
+        } else {
+            number = String(format: "%.0f", magnitude)
+        }
+        return sign + currencySymbol(currency) + number
+    }
+
+    static func money(_ value: Double?, currency: String?) -> String {
+        guard let value else { return "" }
+        let formatter = NumberFormatter()
+        formatter.locale = Locale(identifier: "en_US")
+        formatter.numberStyle = currency == nil ? .decimal : .currency
+        if let currency { formatter.currencyCode = currency }
+        formatter.maximumFractionDigits = 0
+        formatter.minimumFractionDigits = 0
+        return formatter.string(from: NSNumber(value: value)) ?? String(Int(value.rounded()))
+    }
+
+    static func currencySymbol(_ currency: String?) -> String {
+        guard let currency else { return "" }
+        let formatter = NumberFormatter()
+        formatter.locale = Locale(identifier: "en_US")
+        formatter.numberStyle = .currency
+        formatter.currencyCode = currency
+        return formatter.currencySymbol ?? ""
+    }
+
     static func parse(_ body: String) -> [String: CompanionShopPace]? {
         guard let data = body.data(using: .utf8),
               let list = try? JSONDecoder().decode(PaceList.self, from: data) else { return nil }

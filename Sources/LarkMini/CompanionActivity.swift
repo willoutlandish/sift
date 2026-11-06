@@ -31,6 +31,7 @@ struct CompanionShopActivity: Decodable {
         let now: Now?
         let waiting: Waiting?
         let last_run: LastRun?
+        let next_check_at: String?
     }
 
     let tabs: [Tab]
@@ -42,8 +43,42 @@ struct CompanionAgentActivity: Decodable {
         let at: String?
         let text: String?
     }
+    struct Story: Decodable {
+        let headline: String?
+        let sentence: String?
+    }
+    struct Run: Decodable {
+        let run_id: String?
+        let state: String?
+        let outcome: String?
+        let started_at: String?
+        let finished_at: String?
+        let story: Story?
+    }
+    struct Drawer: Decodable {
+        struct NextUp: Decodable {
+            let next_check_at: String?
+            let drafts_waiting: Int?
+        }
+        let runs_48h: Int?
+        let ok_48h: Int?
+        let partial_48h: Int?
+        let failed_48h: Int?
+        let drafts_waiting: Int?
+        let next_up: NextUp?
+    }
 
-    let events: [Event]
+    let events: [Event]?
+    let runs: [Run]?
+    let drawer: Drawer?
+    let next_check_at: String?
+}
+
+enum CompanionRunMark: String, Equatable {
+    case ok
+    case partial
+    case failed
+    case running
 }
 
 struct CompanionActivityAgent: Identifiable, Equatable {
@@ -56,6 +91,21 @@ struct CompanionActivityAgent: Identifiable, Equatable {
     let waiting: String?
     let lines: [String]
     let latestAt: String?
+    let lastRunSummary: String?
+    let lastRunAt: String?
+    let sparkline: [CompanionRunMark]
+    let runs48h: Int?
+    let ok48h: Int?
+    let partial48h: Int?
+    let failed48h: Int?
+    let nextCheckAt: String?
+    let draftsWaiting: Int?
+}
+
+enum CompanionShopActivitySummary: Equatable {
+    case unavailable
+    case failed
+    case ready(agents: Int, working: Int)
 }
 
 enum CompanionActivityAvailability: Equatable {
@@ -96,10 +146,11 @@ enum CompanionActivityParser {
             return .failed
         }
         let agents = shop.tabs.map { tab -> CompanionActivityAgent in
-            let events = eventBodies[tab.agent]
+            let activity = eventBodies[tab.agent]
                 .flatMap { $0.data(using: .utf8) }
-                .flatMap { try? JSONDecoder().decode(CompanionAgentActivity.self, from: $0) }?
-                .events ?? []
+                .flatMap { try? JSONDecoder().decode(CompanionAgentActivity.self, from: $0) }
+            let events = activity?.events ?? []
+            let runs = activity?.runs ?? []
             let lines = events.sorted { ($0.at ?? "") > ($1.at ?? "") }
                 .compactMap { nonEmpty($0.text) }
                 .prefix(3)
@@ -108,6 +159,21 @@ enum CompanionActivityParser {
                 ?? nonEmpty(tab.waiting?.label) ?? nonEmpty(tab.state) ?? "Idle"
             let since = nonEmpty(now?.since) ?? nonEmpty(now?.step?.at)
                 ?? nonEmpty(tab.waiting?.since) ?? nonEmpty(tab.last_run?.at)
+            let sparkline = runs.prefix(12).map { run -> CompanionRunMark in
+                let state = (run.state ?? "").lowercased()
+                let outcome = (run.outcome ?? "").lowercased()
+                if state == "running" || state == "queued" { return .running }
+                if state == "failed" || state == "error" || outcome.contains("fail") { return .failed }
+                if state == "partial" || outcome.contains("partial") { return .partial }
+                if state == "ok" || state == "success" || outcome.contains("ok") { return .ok }
+                return .running
+            }
+            let lastRun = runs.first
+            let lastRunSummary = nonEmpty(lastRun?.story?.headline) ?? nonEmpty(lastRun?.story?.sentence)
+            let lastRunAt = nonEmpty(lastRun?.started_at) ?? nonEmpty(lastRun?.finished_at) ?? nonEmpty(tab.last_run?.at)
+            let drawer = activity?.drawer
+            let nextCheck = nonEmpty(activity?.next_check_at) ?? nonEmpty(drawer?.next_up?.next_check_at)
+                ?? nonEmpty(tab.next_check_at)
             return CompanionActivityAgent(
                 id: tab.agent,
                 name: nonEmpty(tab.name) ?? tab.agent,
@@ -117,8 +183,17 @@ enum CompanionActivityParser {
                 since: since,
                 waiting: nonEmpty(tab.waiting?.label),
                 lines: Array(lines),
-                latestAt: since ?? events.compactMap(\.at).max())
-        }.sorted { ($0.latestAt ?? "") > ($1.latestAt ?? "") }
+                latestAt: since ?? events.compactMap(\.at).max(),
+                lastRunSummary: lastRunSummary,
+                lastRunAt: lastRunAt,
+                sparkline: Array(sparkline),
+                runs48h: drawer?.runs_48h,
+                ok48h: drawer?.ok_48h,
+                partial48h: drawer?.partial_48h,
+                failed48h: drawer?.failed_48h,
+                nextCheckAt: nextCheck,
+                draftsWaiting: drawer?.drafts_waiting ?? drawer?.next_up?.drafts_waiting)
+        }
         return .ready(agents)
     }
 
@@ -132,6 +207,12 @@ enum CompanionActivityFormat {
     static func ago(_ value: String?) -> String {
         guard let value, let date = parse(value) else { return "" }
         return CompanionTodos.ageText(max(0, Int(Date().timeIntervalSince(date))))
+    }
+
+    static func until(_ value: String?) -> String {
+        guard let value, let date = parse(value) else { return "" }
+        let seconds = Int(date.timeIntervalSinceNow)
+        return seconds <= 0 ? "due" : "in " + CompanionTodos.ageText(seconds)
     }
 
     private static func parse(_ value: String) -> Date? {
@@ -149,6 +230,9 @@ final class CompanionActivity: ObservableObject {
 
     @Published private(set) var availability: CompanionActivityAvailability = .unknown
     @Published private(set) var state: CompanionActivityState = .idle
+    @Published private(set) var lastRead: Date?
+    @Published private(set) var summaries: [String: CompanionShopActivitySummary] = [:]
+    private var summaryLoading = Set<String>()
 
     private var resource: String?
     private var task: Task<Void, Never>?
@@ -224,6 +308,37 @@ final class CompanionActivity: ObservableObject {
             state = .failed
         case .ready(let agents):
             state = .ready(agents)
+            lastRead = Date()
+        }
+    }
+
+    func clearSummary(_ resource: String) {
+        summaries[resource] = nil
+    }
+
+    func loadSummaries(resources: [String]) async {
+        for resource in resources where summaries[resource] == nil && !summaryLoading.contains(resource) {
+            summaryLoading.insert(resource)
+            guard let reply = await CompanionApprovalsMonitor.shared.fetch(path: Self.shopPath(resource)) else {
+                summaries[resource] = .failed
+                summaryLoading.remove(resource)
+                continue
+            }
+            if reply.status == 404 {
+                summaries[resource] = .unavailable
+                summaryLoading.remove(resource)
+                continue
+            }
+            guard reply.status == 200, let data = reply.body.data(using: .utf8),
+                  let shop = try? JSONDecoder().decode(CompanionShopActivity.self, from: data) else {
+                summaries[resource] = .failed
+                summaryLoading.remove(resource)
+                continue
+            }
+            summaries[resource] = .ready(
+                agents: shop.tabs.count,
+                working: shop.tabs.filter { $0.state == "working" }.count)
+            summaryLoading.remove(resource)
         }
     }
 
@@ -237,6 +352,10 @@ final class CompanionActivity: ObservableObject {
 
     static func agentPagePath(resource: String, agent: String) -> String {
         "/companion/app/\(escape(resource))/agents/\(escape(agent))/home"
+    }
+
+    static func shopPagePath(resource: String) -> String {
+        "/companion/app/\(escape(resource))/messages/management"
     }
 
     private static func escape(_ value: String) -> String {
