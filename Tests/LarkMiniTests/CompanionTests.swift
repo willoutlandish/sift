@@ -195,6 +195,48 @@ final class CompanionTests: XCTestCase {
         XCTAssertFalse(CompanionTodosState.loading.showsEmpty)
     }
 
+
+    func testActivityParsingKeepsNewestFirstAndWaiting() {
+        let shop = #"""
+        {"tabs":[
+          {"agent":"agent-a","name":"North agent","role":"creator-manager","state":"working",
+           "now":{"source":"run","kind":"run","label":"Checking orders","since":"2026-11-06T07:00:00Z",
+                  "step":{"text":"Reading shop orders","at":"2026-11-06T07:01:00Z","is_error":false}},
+           "waiting":null,"last_run":null},
+          {"agent":"agent-b","name":"Print agent","role":"printer","state":"waiting","now":null,
+           "waiting":{"code":"approval","label":"Waiting for approval","since":"2026-11-06T06:00:00Z"},
+           "last_run":{"state":"ok","at":"2026-11-06T05:00:00Z"}}
+        ]}
+        """#
+        let events = #"""
+        {"events":[
+          {"at":"2026-11-06T07:00:00Z","text":"line older"},
+          {"at":"2026-11-06T07:02:00Z","text":"line newest"},
+          {"at":"2026-11-06T06:58:00Z","text":"line oldest"},
+          {"at":"2026-11-06T06:57:00Z","text":"line beyond"}
+        ]}
+        """#
+        let load = CompanionActivityParser.parse(
+            shopStatus: 200, shopBody: shop, eventBodies: ["agent-a": events])
+        guard case .ready(let agents) = load else { return XCTFail("expected ready") }
+        XCTAssertEqual(agents.map(\.id), ["agent-a", "agent-b"])
+        XCTAssertEqual(agents[0].current, "Reading shop orders")
+        XCTAssertEqual(agents[0].since, "2026-11-06T07:00:00Z")
+        XCTAssertEqual(agents[0].lines, ["line newest", "line older", "line oldest"])
+        XCTAssertEqual(agents[1].waiting, "Waiting for approval")
+        XCTAssertEqual(agents[1].current, "Waiting for approval")
+    }
+
+    func testActivity404HidesAndOtherFailureShowsError() {
+        XCTAssertEqual(CompanionActivityAvailability.from(status: 404), .unavailable)
+        XCTAssertEqual(CompanionActivityAvailability.from(status: 200), .available)
+        XCTAssertEqual(CompanionActivityParser.parse(shopStatus: 404, shopBody: nil, eventBodies: [:]),
+                       .unavailable)
+        XCTAssertEqual(CompanionActivityParser.parse(shopStatus: 500, shopBody: nil, eventBodies: [:]),
+                       .failed)
+        XCTAssertTrue(CompanionActivityState.failed.showsError)
+    }
+
     func testApprovalsDiffClickPathAndSeenStore() {
         let first = CompanionApproval(id: "a", label: "North agent", question: "Approve the reorder",
                                       resource: "north", shopName: "North Studio")

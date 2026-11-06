@@ -4,6 +4,8 @@ struct OllieTodoView: View {
     @EnvironmentObject var store: Store
     @ObservedObject private var monitor = CompanionApprovalsMonitor.shared
     @ObservedObject private var notifications = Notifications.shared
+    @ObservedObject private var activity = CompanionActivity.shared
+    @State private var activityShop: CompanionTodoShop?
 
     var body: some View {
         VStack(spacing: 0) {
@@ -23,6 +25,17 @@ struct OllieTodoView: View {
         .task {
             await notifications.requestApprovalAuthorization()
             monitor.refresh()
+            if case .ready(let snapshot) = monitor.state, let shop = snapshot.shops.first {
+                await activity.detect(resource: shop.resource)
+            }
+        }
+        .onChange(of: monitor.state) { _, state in
+            if case .ready(let snapshot) = state, let shop = snapshot.shops.first {
+                Task { await activity.detect(resource: shop.resource) }
+            }
+        }
+        .sheet(item: $activityShop) { shop in
+            ShopActivityView(shop: shop)
         }
     }
 
@@ -128,6 +141,13 @@ struct OllieTodoView: View {
             HStack(spacing: 6) {
                 Text(shop.name).font(.system(size: 12, weight: .semibold)).lineLimit(1)
                 Spacer(minLength: 0)
+                if activity.availability != .unavailable {
+                    Button("Activity") { activityShop = shop }
+                        .buttonStyle(.plain)
+                        .font(.system(size: 10.5, weight: .medium))
+                        .foregroundStyle(SiftStyle.green)
+                        .help("See what \(shop.name)'s agents are doing")
+                }
                 Text("\(shop.pending)")
                     .font(.system(size: 10, weight: .semibold)).monospacedDigit()
                     .foregroundStyle(SiftStyle.green)

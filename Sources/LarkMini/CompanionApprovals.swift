@@ -195,6 +195,13 @@ struct CompanionApprovalsSeenStore {
     }
 }
 
+struct CompanionFetchReply {
+    let status: Int
+    let contentType: String
+    let body: String
+    let url: String
+}
+
 @MainActor
 final class CompanionApprovalsMonitor: NSObject, WKNavigationDelegate, ObservableObject {
     static let shared = CompanionApprovalsMonitor()
@@ -267,16 +274,18 @@ final class CompanionApprovalsMonitor: NSObject, WKNavigationDelegate, Observabl
         }
     }
 
-    private func poll() async {
-        guard !polling, let webView, baseURL != nil else { return }
-        polling = true
-        defer { polling = false }
+    func fetch(path: String) async -> CompanionFetchReply? {
+        guard let webView, baseURL != nil else { return nil }
+        let encoded = (try? JSONSerialization.data(withJSONObject: [path]))
+            .flatMap { String(data: $0, encoding: .utf8) } ?? "[\"/\"]"
+        let literal = String(encoded.dropFirst().dropLast())
         let script = """
+        const path = \(literal);
         const cookie = document.cookie.split('; ').find((c) => c.startsWith('XSRF-TOKEN='));
         const headers = { Accept: 'application/json' };
         if (cookie) headers['X-XSRF-TOKEN'] = decodeURIComponent(cookie.split('=').slice(1).join('='));
         try {
-          const response = await fetch('/api/oo/approvals', { credentials: 'same-origin', headers });
+          const response = await fetch(path, { credentials: 'same-origin', headers });
           return { status: response.status, contentType: response.headers.get('content-type') || '', body: await response.text(), url: response.url };
         } catch (error) {
           return { status: 0, contentType: '', body: String(error), url: '' };
@@ -292,15 +301,25 @@ final class CompanionApprovalsMonitor: NSObject, WKNavigationDelegate, Observabl
                 }
             }
         }
-        guard let reply = value as? [String: Any] else {
+        guard let reply = value as? [String: Any] else { return nil }
+        return CompanionFetchReply(status: reply["status"] as? Int ?? 0,
+                                   contentType: reply["contentType"] as? String ?? "",
+                                   body: reply["body"] as? String ?? "",
+                                   url: reply["url"] as? String ?? "")
+    }
+
+    private func poll() async {
+        guard !polling, baseURL != nil else { return }
+        polling = true
+        defer { polling = false }
+        guard let reply = await fetch(path: "/api/oo/approvals") else {
             state = .failed
             failures += 1
             schedule(after: backoff)
             return
         }
-        let status = reply["status"] as? Int ?? 0
-        let finalURL = (reply["url"] as? String).flatMap(URL.init)
-        if status == 401 || status == 403 || status == 419
+        let finalURL = URL(string: reply.url)
+        if reply.status == 401 || reply.status == 403 || reply.status == 419
             || (finalURL.map(CompanionSignInProbe.isSignIn) ?? false) {
             state = .signedOut
             OllieBadge.setApprovals(0)
@@ -308,9 +327,9 @@ final class CompanionApprovalsMonitor: NSObject, WKNavigationDelegate, Observabl
             schedule(after: backoff)
             return
         }
-        guard status == 200,
-              let contentType = reply["contentType"] as? String, contentType.contains("application/json"),
-              let body = reply["body"] as? String, let data = body.data(using: .utf8),
+        guard reply.status == 200,
+              reply.contentType.contains("application/json"),
+              let data = reply.body.data(using: .utf8),
               let list = try? JSONDecoder().decode(CompanionApprovalsList.self, from: data) else {
             state = .failed
             failures += 1
