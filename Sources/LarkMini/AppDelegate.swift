@@ -376,9 +376,38 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         panelController.applyMode()
         if store.settings.showIn.showsMenuBar {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { [weak self] in
-                MainActor.assumeIsolated { self?.panelController.applyMode() }
+                MainActor.assumeIsolated {
+                    self?.panelController.applyMode()
+                    self?.ensureStatusItemVisible()
+                    self?.primeStatusItem()
+                }
             }
         }
+    }
+
+    private func primeStatusItem() {
+        guard let item = statusItem, let window = item.button?.window, window.frame.minY < 0 else { return }
+        let trigger = NSWindow(contentRect: NSRect(x: -2000, y: -2000, width: 1, height: 1),
+                               styleMask: [.borderless], backing: .buffered, defer: false)
+        trigger.isOpaque = false
+        trigger.backgroundColor = .clear
+        trigger.orderFrontRegardless()
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { [weak self] in
+            trigger.orderOut(nil)
+            guard let self else { return }
+            if let current = self.statusItem, let win = current.button?.window, win.frame.minY < 0 {
+                NSStatusBar.system.removeStatusItem(current)
+                self.statusItem = nil
+                self.setUpStatusItem()
+            }
+        }
+    }
+
+    private func ensureStatusItemVisible() {
+        guard let item = statusItem, let window = item.button?.window, window.frame.minY < 0 else { return }
+        NSStatusBar.system.removeStatusItem(item)
+        statusItem = nil
+        setUpStatusItem()
     }
 
     private func refreshStatusBadge() {
