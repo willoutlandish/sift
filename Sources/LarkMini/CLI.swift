@@ -549,7 +549,7 @@ enum CLI {
 
     private static func companionOpenURL(path: String) -> URL? {
         var components = URLComponents()
-        components.scheme = "ollie"
+        components.scheme = AppIdentity.urlScheme
         components.host = "companion"
         components.path = "/open"
         components.queryItems = [URLQueryItem(name: "path", value: path)]

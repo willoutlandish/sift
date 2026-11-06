@@ -23,7 +23,7 @@ final class CompanionWindowController: NSWindowController, WKNavigationDelegate,
             backing: .buffered,
             defer: false
         )
-        window.title = "Ollie"
+        window.title = AppIdentity.displayName
         window.minSize = NSSize(width: 480, height: 360)
         window.contentView = webView
         window.isReleasedWhenClosed = false

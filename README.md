@@ -175,11 +175,13 @@ Every command prints one JSON object and exits non-zero on failure.
 swift build
 CFFIXED_USER_HOME="$PWD/dist/test-home" swift test   # tests need an isolated home
 .build/debug/LarkMini --cli selftest
-make demo                # app with fixture data; no credentials, no network
-make app                 # dist/Ollie.app
-make dmg                 # dist/Ollie.dmg
+make demo                # dev app with fixture data; no credentials, no network
+make app                 # dist/Ollie Dev.app (dev identity)
+make check-dev           # assert dist/Ollie Dev.app is the dev identity
+make dmg                 # dist/Ollie Dev.dmg
 ```
 
-`open dist/Ollie.app --args --demo` accepts `--demo-chat`, `--demo-control`,
-`--demo-needs-you` and `--demo-search`. Design decisions are recorded in
-[docs/decisions](docs/decisions).
+`open "dist/Ollie Dev.app" --args --demo` accepts `--demo-chat`, `--demo-control`,
+`--demo-needs-you` and `--demo-search`. `make install` builds the real identity
+(`Ollie.app`, `com.outlandish.ollie`, `ollie://`). Design decisions are recorded
+in [docs/decisions](docs/decisions).

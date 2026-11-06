@@ -214,9 +214,13 @@ struct CompanionNavigationPolicy: Equatable {
 }
 
 extension Notification.Name {
-    static let companionStatusRequest = Notification.Name("com.outlandish.ollie.companion-status-request")
-    static let companionOpenRequest = Notification.Name("com.outlandish.ollie.companion-open-request")
-    static let companionPaceRequest = Notification.Name("com.outlandish.ollie.companion-pace-request")
+    private static func companion(_ name: String) -> Notification.Name {
+        Notification.Name(AppIdentity.notificationName(name, bundleIdentifier: AppIdentity.bundleIdentifier))
+    }
+
+    static let companionStatusRequest = Notification.Name.companion("companion-status-request")
+    static let companionOpenRequest = Notification.Name.companion("companion-open-request")
+    static let companionPaceRequest = Notification.Name.companion("companion-pace-request")
 }
 
 enum CompanionSession {

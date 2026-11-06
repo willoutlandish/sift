@@ -101,7 +101,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func application(_ application: NSApplication, open urls: [URL]) {
         for url in urls {
-            if url.scheme == "ollie", url.host == "companion" {
+            if url.scheme == AppIdentity.urlScheme, url.host == "companion" {
                 let path = URLComponents(url: url, resolvingAgainstBaseURL: false)?
                     .queryItems?.first { $0.name == "path" }?.value
                 panelController.expand()
@@ -195,7 +195,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         let appItem = NSMenuItem()
         let appMenu = NSMenu()
-        appMenu.addItem(withTitle: "Quit Ollie",
+        appMenu.addItem(withTitle: "Quit \(AppIdentity.displayName)",
                         action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
         appItem.submenu = appMenu
         mainMenu.addItem(appItem)
@@ -318,7 +318,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func showStatusMenu() {
         guard let statusItem else { return }
         let menu = NSMenu()
-        menu.addItem(withTitle: "Open Ollie", action: #selector(openPanel), keyEquivalent: "")
+        menu.addItem(withTitle: "Open \(AppIdentity.displayName)", action: #selector(openPanel), keyEquivalent: "")
         menu.addItem(withTitle: "Settings", action: #selector(openSettings), keyEquivalent: "")
         menu.addItem(withTitle: "Add Control seat…", action: #selector(openSettings), keyEquivalent: "")
         menu.addItem(.separator())

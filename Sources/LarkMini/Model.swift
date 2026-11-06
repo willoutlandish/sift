@@ -28,7 +28,7 @@ struct Chat: Identifiable, Equatable, Hashable, Codable {
 /// Only exact names of two or more words that belong to one chat link; single words
 /// and names shared by several chats are too ambiguous. Code and existing links stay.
 struct ChatLinks: Equatable {
-    static let scheme = "ollie"
+    static let scheme = AppIdentity.urlScheme
     private var names: [Substring: [(name: String, id: String)]] = [:]
 
     init(chats: [Chat]) {
