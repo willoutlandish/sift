@@ -26,14 +26,14 @@ struct RailView: View {
             Button { store.showInbox() } label: {
                 VStack(spacing: 4) {
                     InboxFaceIcon(size: 32)
-                    Text("Inbox").font(.system(size: 11, weight: .medium))
+                    Text("Lark").font(.system(size: 11, weight: .medium))
                 }
                 .frame(width: 48, height: 58)
                 .background(selection(store.openChat == nil && !store.controlOpen && !store.showingSettings))
             }
             .buttonStyle(.plain)
-            .help("Inbox (⌘0)")
-            .accessibilityLabel("Ollie Inbox")
+            .help("Lark (⌘0)")
+            .accessibilityLabel("Lark chats")
 
             if store.controlSeat != nil {
                 Button { store.openControl() } label: {

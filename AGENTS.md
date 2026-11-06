@@ -1,7 +1,7 @@
 # Agent setup
 
 You are setting up Ollie for the person who owns this Mac. It is a small
-floating panel: pinned Lark chats, an inbox of unread chats, and an optional
+floating panel: pinned Lark chats, a Lark list of unread chats, and an optional
 Paseo Control seat with that Control's open asks. All setup is done through `ollie`; there is no config
 wizard to operate.
 

@@ -5,7 +5,7 @@ struct ChatListView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            PaneHeader(title: "Ollie", subtitle: store.offline ? "Offline · showing saved chats" : "A little space for what needs you") {
+            PaneHeader(title: "Lark", subtitle: store.offline ? "Offline · showing saved chats" : "A little space for what needs you") {
                 if store.loadingChats {
                     ProgressView().controlSize(.small).frame(width: 32)
                 } else {
@@ -16,7 +16,7 @@ struct ChatListView: View {
                 }
             }
             HStack(spacing: 20) {
-                tab("Inbox", all: false)
+                tab("Lark", all: false)
                 tab("All chats", all: true)
                 Spacer(minLength: 0)
                 if !store.showAllChats && store.unreadCount > 0 {
@@ -112,7 +112,7 @@ struct ChatListView: View {
                     Text("At your fingertips").font(.system(size: 14, weight: .semibold))
                     ShortcutHint(keys: "⌥ Space", label: "open or collapse Ollie")
                     ShortcutHint(keys: "⌘ K", label: "find a chat")
-                    ShortcutHint(keys: "⌘ 0", label: "Inbox")
+                    ShortcutHint(keys: "⌘ 0", label: "Lark")
                     ShortcutHint(keys: "⌘ 1–9", label: "pinned chats")
                     ShortcutHint(keys: "J K / ↑ ↓", label: "move through chats")
                     ShortcutHint(keys: "E", label: "mark selected chat read")

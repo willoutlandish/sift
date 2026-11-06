@@ -13,7 +13,7 @@ automate the Lark desktop client.
 - **Edge head.** Rests at the right screen edge; ⌥Space or a click opens the
   panel. Drag the panel's header to move it; drop it against the right edge to
   dock it again. Reduce Motion stops every animation.
-- **Inbox and All chats.** Unread activity first, with previews, mute and
+- **Lark and All chats.** Unread activity first, with previews, mute and
   mark-read. All chats pages through your full chat list.
 - **Pinned chats.** Up to ten in the rail (⌘1–9). Drag to reorder.
 - **Conversations.** Text, rich posts with links, mentions and images, card
