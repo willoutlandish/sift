@@ -2,7 +2,7 @@ import AppKit
 import WebKit
 
 @MainActor
-final class CompanionWindowController: NSWindowController, WKNavigationDelegate, WKUIDelegate, WKDownloadDelegate {
+final class CompanionWindowController: NSWindowController, WKNavigationDelegate, WKUIDelegate, WKDownloadDelegate, WKScriptMessageHandlerWithReply {
     static let shared = CompanionWindowController()
 
     private let webView: WKWebView
@@ -12,6 +12,7 @@ final class CompanionWindowController: NSWindowController, WKNavigationDelegate,
     private init() {
         let configuration = WKWebViewConfiguration()
         configuration.websiteDataStore = .default()
+        configuration.userContentController = WKUserContentController()
         let webView = WKWebView(frame: .zero, configuration: configuration)
         webView.allowsMagnification = true
         webView.autoresizingMask = [.width, .height]
@@ -34,6 +35,8 @@ final class CompanionWindowController: NSWindowController, WKNavigationDelegate,
 
         webView.navigationDelegate = self
         webView.uiDelegate = self
+        webView.configuration.userContentController.addScriptMessageHandler(
+            self, contentWorld: .page, name: "ollie")
     }
 
     required init?(coder: NSCoder) {
@@ -46,10 +49,85 @@ final class CompanionWindowController: NSWindowController, WKNavigationDelegate,
             ?? baseURL
         self.baseURL = baseURL
         policy = CompanionNavigationPolicy(baseURL: baseURL)
+        installCompanionBridge(appOrigin: baseURL)
         showWindow(nil)
         window?.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
         webView.load(URLRequest(url: target))
+    }
+
+    private func installCompanionBridge(appOrigin: URL) {
+        var components = URLComponents()
+        components.scheme = appOrigin.scheme
+        components.host = appOrigin.host
+        components.port = appOrigin.port
+        let origin = components.string ?? appOrigin.absoluteString
+        let escaped = origin
+            .replacingOccurrences(of: "\\", with: "\\\\")
+            .replacingOccurrences(of: "\"", with: "\\\"")
+        let source = """
+        (function () {
+          const appOrigin = "\(escaped)";
+          if (window.top !== window || location.origin !== appOrigin) return;
+          if (location.pathname !== '/companion/app' && !location.pathname.startsWith('/companion/app/')) return;
+          const handler = window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.ollie;
+          if (!handler) return;
+          const call = (method) => (...args) => handler.postMessage({ method, args });
+          window.companion = Object.freeze({
+            shell: Object.freeze({
+              kind: 'desktop',
+              platform: 'darwin',
+              openExternal: call('openExternal')
+            }),
+            setBadge: call('setBadge'),
+            notify: call('notify'),
+            openExternal: call('openExternal'),
+            openSpace: call('openSpace'),
+            showSpace: call('showSpace'),
+            hideSpace: call('hideSpace'),
+            closeSpace: call('closeSpace'),
+            navigate: call('navigate')
+          });
+        })();
+        """
+        let controller = webView.configuration.userContentController
+        controller.removeAllUserScripts()
+        controller.addUserScript(WKUserScript(source: source, injectionTime: .atDocumentStart,
+                                              forMainFrameOnly: true))
+    }
+
+    func userContentController(_ userContentController: WKUserContentController,
+                               didReceive message: WKScriptMessage,
+                               replyHandler: @escaping (Any?, String?) -> Void) {
+        guard message.frameInfo.isMainFrame,
+              let baseURL,
+              CompanionBridge.allowedPage(message.webView?.url ?? message.frameInfo.request.url, base: baseURL),
+              CompanionConfig.originMatches(
+                scheme: message.frameInfo.securityOrigin.`protocol`,
+                host: message.frameInfo.securityOrigin.host,
+                port: message.frameInfo.securityOrigin.port,
+                base: baseURL),
+              let body = message.body as? [String: Any],
+              let method = body["method"] as? String,
+              let arguments = body["args"] as? [Any] else {
+            replyHandler(nil, "Invalid Companion bridge call")
+            return
+        }
+        switch CompanionBridge.validate(method: method, arguments: arguments) {
+        case .setBadge(let count):
+            OllieBadge.setUnread(count)
+            replyHandler(true, nil)
+        case .notify(let title, let body):
+            Task { await Notifications.shared.postBridge(title: title, body: body) }
+            replyHandler(true, nil)
+        case .openExternal(let url):
+            NSWorkspace.shared.open(url)
+            replyHandler(true, nil)
+        case .unsupported:
+            replyHandler(nil, "Unsupported Companion method")
+        case .invalid:
+            replyHandler(nil, "Invalid Companion bridge arguments")
+        }
     }
 
     func webView(_ webView: WKWebView,
@@ -84,11 +162,13 @@ final class CompanionWindowController: NSWindowController, WKNavigationDelegate,
                  for navigationAction: WKNavigationAction,
                  windowFeatures: WKWindowFeatures) -> WKWebView? {
         guard let url = navigationAction.request.url else { return nil }
-        switch policy?.decision(for: url) ?? .allow {
-        case .allow:
+        switch policy?.windowOpenDecision(for: url, topURL: webView.url) ?? .deny {
+        case .loadInCompanion:
             webView.load(URLRequest(url: url))
-        case .external:
+        case .openExternally:
             NSWorkspace.shared.open(url)
+        case .deny:
+            break
         }
         return nil
     }

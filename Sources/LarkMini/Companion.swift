@@ -57,12 +57,75 @@ enum CompanionConfig {
         let originPort = port == 0 ? (originScheme == "https" ? 443 : 80) : port
         return originScheme == baseScheme && host.lowercased() == baseHost && originPort == basePort
     }
+
+    static func isCompanionAppPath(_ path: String) -> Bool {
+        path == "/companion/app" || path.hasPrefix("/companion/app/")
+    }
+}
+
+enum CompanionBridge {
+    enum Call: Equatable {
+        case setBadge(Int)
+        case notify(String, String)
+        case openExternal(URL)
+        case unsupported
+        case invalid
+    }
+
+    static func allowedPage(_ url: URL?, base: URL) -> Bool {
+        guard let url,
+              CompanionConfig.originMatches(scheme: url.scheme ?? "", host: url.host ?? "",
+                                            port: url.port ?? 0, base: base) else { return false }
+        return CompanionConfig.isCompanionAppPath(url.path)
+    }
+
+    static func validate(method: String, arguments: [Any]) -> Call {
+        switch method {
+        case "setBadge":
+            guard arguments.count == 1, let count = integer(arguments[0]), (0...99999).contains(count) else {
+                return .invalid
+            }
+            return .setBadge(count)
+        case "notify":
+            guard arguments.count == 2,
+                  let title = arguments[0] as? String, (1...200).contains(title.count),
+                  let body = arguments[1] as? String, (1...2000).contains(body.count) else {
+                return .invalid
+            }
+            return .notify(title, body)
+        case "openExternal":
+            guard arguments.count == 1,
+                  let raw = arguments[0] as? String, raw == raw.trimmingCharacters(in: .whitespacesAndNewlines),
+                  (1...8192).contains(raw.count),
+                  let url = URL(string: raw), url.scheme?.lowercased() == "https",
+                  url.user == nil, url.password == nil else { return .invalid }
+            return .openExternal(url)
+        case "openSpace", "showSpace", "hideSpace", "closeSpace", "navigate":
+            return .unsupported
+        default:
+            return .invalid
+        }
+    }
+
+    private static func integer(_ value: Any) -> Int? {
+        if let value = value as? Int { return value }
+        if let value = value as? NSNumber, value.doubleValue.rounded() == value.doubleValue {
+            return value.intValue
+        }
+        return nil
+    }
 }
 
 struct CompanionNavigationPolicy: Equatable {
     enum Decision: Equatable {
         case allow
         case external
+    }
+
+    enum WindowOpenDecision: Equatable {
+        case loadInCompanion
+        case openExternally
+        case deny
     }
 
     static let defaultSignInHosts: Set<String> = [
@@ -85,8 +148,50 @@ struct CompanionNavigationPolicy: Equatable {
         if scheme == "about" || scheme == "blob" { return .allow }
         guard scheme == "http" || scheme == "https",
               let host = url.host?.lowercased() else { return .external }
-        if isBaseOrigin(url) || isSignInHost(host) { return .allow }
+        if isBaseOrigin(url) || isAuthURL(url) || isSignInHost(host) { return .allow }
         return .external
+    }
+
+    func windowOpenDecision(for url: URL, topURL: URL?) -> WindowOpenDecision {
+        if let topURL, isAuthURL(topURL) { return .deny }
+        if isAuthURL(url) || isSignInCallback(url) { return .deny }
+        if isBaseOrigin(url) { return .loadInCompanion }
+        if url.scheme?.lowercased() == "https", url.user == nil, url.password == nil {
+            return .openExternally
+        }
+        return .deny
+    }
+
+    func isAuthURL(_ url: URL?) -> Bool {
+        guard let url, url.scheme?.lowercased() == "https",
+              url.port == nil, url.user == nil, url.password == nil,
+              let host = url.host?.lowercased() else { return false }
+        if host == "api.workos.com" || host == "accounts.google.com" { return true }
+        if Self.isAuthKitHost(host) { return true }
+        switch host {
+        case "accounts.larksuite.com":
+            return url.path.hasPrefix("/accounts/") || url.path == "/open-apis/authen/v1/authorize"
+        case "open.larksuite.com":
+            return url.path == "/open-apis/authen/v1/authorize"
+        case "passport.larksuite.com":
+            return url.path == "/accounts/page/login"
+        case "login-sg.larksuite.com":
+            return url.path == "/accounts/trap"
+        case "accounts-sg.larksuite.com":
+            return url.path == "/accounts/page/login"
+        default:
+            return false
+        }
+    }
+
+    func isSignInCallback(_ url: URL?) -> Bool {
+        guard let url, isBaseOrigin(url) else { return false }
+        return url.path == "/outlandish/callback" || url.path == "/lark-oauth2/callback"
+    }
+
+    static func isAuthKitHost(_ host: String) -> Bool {
+        host.range(of: #"^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.authkit\.app$"#,
+                   options: .regularExpression) != nil
     }
 
     private func isBaseOrigin(_ url: URL) -> Bool {
