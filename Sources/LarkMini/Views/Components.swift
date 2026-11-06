@@ -172,12 +172,12 @@ enum BrandIcon {
         let size = NSSize(width: 18, height: 18)
         let image = NSImage(size: size)
         image.lockFocus()
-        NSColor(calibratedRed: 0.71, green: 0.90, blue: 0.68, alpha: 1).setFill()
-        NSBezierPath(ovalIn: NSRect(x: 0.5, y: 0.5, width: 17, height: 17)).fill()
-        NSColor(calibratedRed: 0.98, green: 0.97, blue: 0.92, alpha: 1).setFill()
-        for x in [5.6, 10.0] {
-            NSBezierPath(roundedRect: NSRect(x: x, y: 6.4, width: 2.4, height: 4.2),
-                         xRadius: 1.1, yRadius: 1.1).fill()
+        if let duck = OllieArt.duck() {
+            duck.draw(in: NSRect(origin: .zero, size: size), from: .zero,
+                      operation: .sourceOver, fraction: 1)
+        } else {
+            NSColor(calibratedRed: 0.85, green: 0.95, blue: 0.05, alpha: 1).setFill()
+            NSBezierPath(ovalIn: NSRect(x: 0.5, y: 0.5, width: 17, height: 17)).fill()
         }
         image.unlockFocus()
         image.isTemplate = false
@@ -191,7 +191,7 @@ struct CompanionMark: View {
     var body: some View {
         Image(systemName: "building.2")
             .font(.system(size: size * 0.52, weight: .medium))
-            .foregroundStyle(SiftStyle.green)
+            .foregroundStyle(Color(red: 0.82, green: 0.94, blue: 0.08))
             .frame(width: size, height: size)
             .accessibilityHidden(true)
     }
@@ -228,7 +228,7 @@ struct PaneHeader<Trailing: View>: View {
                 Text(subtitle).font(.system(size: 11)).foregroundStyle(SiftStyle.secondary).lineLimit(1)
             }
             .panelDragHandle()
-            .help("Drag to move Sift")
+            .help("Drag to move Ollie")
             Spacer(minLength: 0)
             trailing
         }

@@ -5,7 +5,7 @@ struct ChatListView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            PaneHeader(title: "Sift", subtitle: store.offline ? "Offline · showing saved chats" : "A little space for what needs you") {
+            PaneHeader(title: "Ollie", subtitle: store.offline ? "Offline · showing saved chats" : "A little space for what needs you") {
                 if store.loadingChats {
                     ProgressView().controlSize(.small).frame(width: 32)
                 } else {
@@ -110,7 +110,7 @@ struct ChatListView: View {
             .popover(isPresented: $store.showingShortcuts) {
                 VStack(alignment: .leading, spacing: 12) {
                     Text("At your fingertips").font(.system(size: 14, weight: .semibold))
-                    ShortcutHint(keys: "⌥ Space", label: "open or collapse Sift")
+                    ShortcutHint(keys: "⌥ Space", label: "open or collapse Ollie")
                     ShortcutHint(keys: "⌘ K", label: "find a chat")
                     ShortcutHint(keys: "⌘ 0", label: "Inbox")
                     ShortcutHint(keys: "⌘ 1–9", label: "pinned chats")

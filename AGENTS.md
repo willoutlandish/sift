@@ -1,21 +1,21 @@
 # Agent setup
 
-You are setting up Sift for the person who owns this Mac. It is a small
+You are setting up Ollie for the person who owns this Mac. It is a small
 floating panel: pinned Lark chats, an inbox of unread chats, and an optional
-Paseo Control seat with that Control's open asks. All setup is done through `sift`; there is no config
+Paseo Control seat with that Control's open asks. All setup is done through `ollie`; there is no config
 wizard to operate.
 
 ## What you may run
 
 ```bash
 ./install.sh                     # builds and installs app + CLI
-sift setup --app-id ID --app-secret -     # secret on stdin
-sift login --no-wait                       # prints user_code + URL
-sift login --device-code CODE              # after the person approves
-sift doctor
-sift chats --limit 5
-sift pins add --name "Design Room"
-sift control set --agent-id ID --host tcp://host:6767
+ollie setup --app-id ID --app-secret -     # secret on stdin
+ollie login --no-wait                       # prints user_code + URL
+ollie login --device-code CODE              # after the person approves
+ollie doctor
+ollie chats --limit 5
+ollie pins add --name "Design Room"
+ollie control set --agent-id ID --host tcp://host:6767
 ```
 
 Every command prints one JSON object on stdout and exits non-zero on failure.
@@ -38,16 +38,16 @@ Check `ok` in the JSON, not the exit code alone.
 - Pass the app secret on stdin (`--app-secret -`) or from a file
   (`--app-secret-file`). Never in argv, never echoed, never in a log.
 - Credentials are written to
-  `~/Library/Application Support/Sift/credentials.json` with mode 0600.
+  `~/Library/Application Support/Ollie/credentials.json` with mode 0600.
   Do not print or copy that file.
 - `bootstrap` overwrites existing credentials. On an installed machine use
   `setup` instead.
 
 ## Done means
 
-- `sift doctor` returns `ok: true` with a chat count above zero.
-- `sift status` reports `signed_in: true` and the right user.
-- `open ~/Applications/Sift.app` shows the bar in the screen corner;
+- `ollie doctor` returns `ok: true` with a chat count above zero.
+- `ollie status` reports `signed_in: true` and the right user.
+- `open ~/Applications/Ollie.app` shows the bar in the screen corner;
   clicking it opens the panel.
 
 ## Do not

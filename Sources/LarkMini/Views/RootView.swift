@@ -59,11 +59,11 @@ struct CollapsedBubble: View {
                     Circle()
                         .fill(
                             RadialGradient(stops: [
-                                .init(color: Color(red: 0.52, green: 0.80, blue: 0.47).opacity(0.62), location: 0.00),
-                                .init(color: Color(red: 0.55, green: 0.82, blue: 0.50).opacity(0.50), location: 0.60),
-                                .init(color: Color(red: 0.62, green: 0.86, blue: 0.56).opacity(0.22), location: 0.80),
-                                .init(color: Color(red: 0.66, green: 0.88, blue: 0.60).opacity(0.06), location: 0.93),
-                                .init(color: Color(red: 0.70, green: 0.90, blue: 0.63).opacity(0.00), location: 1.00)
+                                .init(color: Color(red: 0.86, green: 0.97, blue: 0.10).opacity(0.62), location: 0.00),
+                                .init(color: Color(red: 0.90, green: 0.99, blue: 0.18).opacity(0.50), location: 0.60),
+                                .init(color: Color(red: 0.94, green: 1.00, blue: 0.34).opacity(0.22), location: 0.80),
+                                .init(color: Color(red: 0.97, green: 1.00, blue: 0.52).opacity(0.06), location: 0.93),
+                                .init(color: Color(red: 1.00, green: 1.00, blue: 0.62).opacity(0.00), location: 1.00)
                             ], center: .center, startRadius: 0, endRadius: 30)
                         )
                         .frame(width: 60, height: 60)
@@ -91,8 +91,8 @@ struct CollapsedBubble: View {
                 .scaleEffect(reduceMotion ? 1 : 1 + 0.05 * gaze.proximity)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .trailing)
-        .help(store.attentionSummary.map { "Control · " + $0 + " · Click to open" } ?? "Open Sift (⌥Space)")
-        .accessibilityLabel("Open Sift, \(store.unreadCount) unread chats" + (store.attentionSummary.map { ", Control " + $0 } ?? ""))
+        .help(store.attentionSummary.map { "Control · " + $0 + " · Click to open" } ?? "Open Ollie (⌥Space)")
+        .accessibilityLabel("Open Ollie, \(store.unreadCount) unread chats" + (store.attentionSummary.map { ", Control " + $0 } ?? ""))
     }
 }
 

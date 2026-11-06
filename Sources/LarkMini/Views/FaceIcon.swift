@@ -49,81 +49,31 @@ final class GazeTracker: ObservableObject {
     }
 }
 
+enum OllieArt {
+    static func duck() -> NSImage? {
+        guard let url = Bundle.main.url(forResource: "OllieDuck", withExtension: "png") else { return nil }
+        return NSImage(contentsOf: url)
+    }
+}
+
 struct FaceIcon: View {
-    @ObservedObject private var gaze = GazeTracker.shared
-    @Environment(\.siftReduceMotion) private var reduceMotion
-    @State private var blinking = false
-    @State private var blinkTask: Task<Void, Never>?
     var size: CGFloat = 36
 
-    static let faceTop = Color(red: 0.639, green: 0.847, blue: 0.529)
-    static let faceBottom = Color(red: 0.520, green: 0.780, blue: 0.480)
-    static let rim = Color(red: 0.243, green: 0.475, blue: 0.239)
-    static let eye = Color(red: 1.0, green: 0.976, blue: 0.922)
-    static let eyeStroke = Color(red: 0.259, green: 0.478, blue: 0.239)
-    static let aura = Color(red: 0.196, green: 0.784, blue: 0.353)
-    static let face = faceTop
-
     var body: some View {
-        ZStack {
-            Circle()
-                .fill(
-                    LinearGradient(colors: [FaceIcon.faceTop, FaceIcon.faceBottom],
-                                   startPoint: .topLeading, endPoint: .bottomTrailing)
-                )
-            HStack(spacing: 6) {
-                eyeShape
-                eyeShape
-            }
-            .scaleEffect(y: blinking ? 0.14 : 1, anchor: .center)
-            .offset(x: reduceMotion ? 0 : gaze.offset.width, y: (reduceMotion ? 0 : gaze.offset.height) + 1.5)
-            .animation(reduceMotion ? nil : .easeInOut(duration: 0.07), value: blinking)
-        }
-        .frame(width: size, height: size)
-        .clipShape(Circle())
-        .overlay(Circle().strokeBorder(FaceIcon.rim.opacity(0.55), lineWidth: 0.75))
-        .onAppear { startBlinking() }
-        .onChange(of: reduceMotion) {
-            blinkTask?.cancel()
-            blinkTask = nil
-            blinking = false
-            if !reduceMotion { startBlinking() }
-        }
-        .onDisappear {
-            blinkTask?.cancel()
-            blinkTask = nil
-        }
-    }
-
-    private func startBlinking() {
-        guard !reduceMotion, blinkTask == nil else { return }
-        blinkTask = Task { @MainActor in
-            while !Task.isCancelled {
-                let pause = UInt64(Double.random(in: 3.0...7.5) * 1_000_000_000)
-                try? await Task.sleep(nanoseconds: pause)
-                guard !Task.isCancelled else { return }
-                blinking = true
-                try? await Task.sleep(nanoseconds: 110_000_000)
-                guard !Task.isCancelled else { return }
-                blinking = false
-                if Bool.random() {
-                    try? await Task.sleep(nanoseconds: 180_000_000)
-                    guard !Task.isCancelled else { return }
-                    blinking = true
-                    try? await Task.sleep(nanoseconds: 90_000_000)
-                    blinking = false
+        Group {
+            if let image = OllieArt.duck() {
+                Image(nsImage: image)
+                    .resizable()
+                    .interpolation(.high)
+                    .scaledToFit()
+            } else {
+                ZStack {
+                    Circle().fill(Color(red: 0.85, green: 0.95, blue: 0.05))
+                    Circle().strokeBorder(.black.opacity(0.8), lineWidth: max(1, size * 0.05))
                 }
             }
         }
-    }
-
-    private var eyeShape: some View {
-        RoundedRectangle(cornerRadius: 3, style: .continuous)
-            .fill(FaceIcon.eye)
-            .frame(width: 6, height: 9)
-            .overlay(
-                RoundedRectangle(cornerRadius: 3, style: .continuous)
-                    .strokeBorder(FaceIcon.eyeStroke.opacity(0.25), lineWidth: 0.5)
-            )
+        .frame(width: size, height: size)
+        .accessibilityHidden(true)
     }
 }

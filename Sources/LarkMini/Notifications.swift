@@ -28,7 +28,7 @@ final class Notifications: NSObject, ObservableObject, UNUserNotificationCenterD
     func refresh(request: Bool = false) async {
         guard let center else {
             state = "Unavailable"
-            hint = "Open the Sift app bundle to use macOS notifications."
+            hint = "Open the Ollie app bundle to use macOS notifications."
             return
         }
         center.delegate = self
@@ -43,13 +43,13 @@ final class Notifications: NSObject, ObservableObject, UNUserNotificationCenterD
         case .notDetermined: state = "Permission not requested"
         case .denied:
             state = "Blocked by macOS"
-            hint = "Allow Sift in System Settings → Notifications. The edge dot still works."
+            hint = "Allow Ollie in System Settings → Notifications. The edge dot still works."
         case .authorized, .provisional, .ephemeral:
             state = settings.alertSetting == .enabled ? "Allowed by macOS" : "Banners off in macOS"
             if settings.alertSetting != .enabled {
-                hint = "Enable Sift alerts in System Settings → Notifications. The edge dot still works."
+                hint = "Enable Ollie alerts in System Settings → Notifications. The edge dot still works."
             } else if sound, settings.soundSetting != .enabled {
-                hint = "Sound is off for Sift in System Settings → Notifications."
+                hint = "Sound is off for Ollie in System Settings → Notifications."
             }
         @unknown default:
             state = "Unavailable"
@@ -87,7 +87,7 @@ final class Notifications: NSObject, ObservableObject, UNUserNotificationCenterD
 
     func test() async {
         let id = "test-\(UUID().uuidString)"
-        await post(title: "Sift", body: "A quiet nudge. Click to open Sift.", id: id, destination: "")
+        await post(title: "Ollie", body: "A quiet nudge. Click to open Ollie.", id: id, destination: "")
         try? await Task.sleep(nanoseconds: 700_000_000)
         let delivered = await center?.deliveredNotifications() ?? []
         if let notification = delivered.first(where: { $0.request.identifier == id }) {

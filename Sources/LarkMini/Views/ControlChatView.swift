@@ -14,7 +14,7 @@ struct ControlChatView: View {
                     Text(store.controlSeat?.title ?? "Paseo")
                         .font(.system(size: 11)).foregroundStyle(SiftStyle.secondary).lineLimit(1)
                 }
-                .panelDragHandle().help("Drag to move Sift")
+                .panelDragHandle().help("Drag to move Ollie")
                 Spacer(minLength: 0)
                 if store.openNeedCount > 0 {
                     Button { store.controlFocusAsks = true } label: {
@@ -129,7 +129,7 @@ struct ControlChatView: View {
             }
             .accessibilityElement(children: .ignore).accessibilityLabel("Control: \(activity)")
         } else if store.controlStatus == "archived" {
-            Text("This session is archived. Sift moves to the next Control once Paseo names one.")
+            Text("This session is archived. Ollie moves to the next Control once Paseo names one.")
                 .font(.system(size: 12)).foregroundStyle(SiftStyle.secondary)
         } else if store.controlStatus == "error" {
             Text("Control stopped with an error.").font(.system(size: 12)).foregroundStyle(SiftStyle.secondary)
@@ -316,7 +316,7 @@ struct WorkRow: View {
             .buttonStyle(.plain).disabled(!hasBody)
             if open.contains(step.id) {
                 if step.unrendered {
-                    Text("Sift has no view for this content yet; it is shown raw. Paseo shows it in full.")
+                    Text("Ollie has no view for this content yet; it is shown raw. Paseo shows it in full.")
                         .font(.system(size: 10)).foregroundStyle(SiftStyle.muted)
                 }
                 if !step.todos.isEmpty { TodoList(todos: step.todos) }

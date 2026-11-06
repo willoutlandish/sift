@@ -22,11 +22,11 @@ final class CompanionWindowController: NSWindowController, WKNavigationDelegate,
             backing: .buffered,
             defer: false
         )
-        window.title = "Companion"
+        window.title = "Ollie"
         window.minSize = NSSize(width: 480, height: 360)
         window.contentView = webView
         window.isReleasedWhenClosed = false
-        window.setFrameAutosaveName("SiftCompanionWindow")
+        window.setFrameAutosaveName("OllieCompanionWindow")
         window.center()
 
         self.webView = webView

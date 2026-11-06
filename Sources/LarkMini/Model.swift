@@ -24,11 +24,11 @@ struct Chat: Identifiable, Equatable, Hashable, Codable {
     }
 }
 
-/// Chat names that Control and asks mention, linked so a click opens that chat in Sift.
+/// Chat names that Control and asks mention, linked so a click opens that chat in Ollie.
 /// Only exact names of two or more words that belong to one chat link; single words
 /// and names shared by several chats are too ambiguous. Code and existing links stay.
 struct ChatLinks: Equatable {
-    static let scheme = "sift"
+    static let scheme = "ollie"
     private var names: [Substring: [(name: String, id: String)]] = [:]
 
     init(chats: [Chat]) {
@@ -143,7 +143,7 @@ enum LarkMedia: Equatable {
     case contact(id: String)
     /// Merged-and-forwarded messages, fetched when opened.
     case forward
-    /// A type Sift has no view for (calendar, task, poll, location…): named and opened in Lark.
+    /// A type Ollie has no view for (calendar, task, poll, location…): named and opened in Lark.
     case other(type: String)
 
     static func duration(_ seconds: Int) -> String {

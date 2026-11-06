@@ -28,7 +28,7 @@ struct EdgeBubble: Equatable, Identifiable {
     }
 }
 
-/// Sift's own chat-bird mark, drawn in white: a speech bubble with a wing.
+/// Ollie's own chat-bird mark, drawn in white: a speech bubble with a wing.
 struct ChatBirdMark: View {
     var size: CGFloat = 26
 
@@ -112,7 +112,7 @@ struct EdgeBubbleView: View {
         .onTapGesture { store.openBubble() }
         .accessibilityElement(children: .combine)
         .accessibilityAddTraits(.isButton)
-        .accessibilityHint("Opens it in Sift")
+        .accessibilityHint("Opens it in Ollie")
     }
 }
 

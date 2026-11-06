@@ -30,7 +30,7 @@ struct AppState: Codable, Equatable {
 }
 
 
-/// Non-secret state shared by the app and the `sift` CLI.
+/// Non-secret state shared by the app and the `ollie` CLI.
 /// Lives beside the credentials file, readable only by the user.
 final class StateFile {
     static let shared = StateFile()

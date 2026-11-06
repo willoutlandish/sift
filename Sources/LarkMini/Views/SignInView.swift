@@ -10,7 +10,7 @@ struct SignInView: View {
             Spacer(minLength: 20)
             FaceIcon(size: 60)
 
-            Text("Sift")
+            Text("Ollie")
                 .font(.system(size: 24, weight: .semibold))
             Text("Your chats, floating where you work.")
                 .font(.system(size: 11))

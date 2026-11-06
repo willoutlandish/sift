@@ -156,8 +156,8 @@ final class ChatLinkTests: XCTestCase {
         links.link(&text)
         let linked = text.runs.compactMap { run in run.link.map { (String(text[run.range].characters), $0.absoluteString) } }
         XCTAssertEqual(linked.map(\.0), ["Ana Ruiz", "Kai Moreno", "Ops - Launch Room [TEAM]", "Ana Rossi"])
-        XCTAssertEqual(linked.map(\.1), ["sift://chat/dm-ana", "sift://chat/dm-kai", "sift://chat/room", "https://example.com"])
-        XCTAssertEqual(ChatLinks.chatId(from: URL(string: "sift://chat/dm-ana")!), "dm-ana")
+        XCTAssertEqual(linked.map(\.1), ["ollie://chat/dm-ana", "ollie://chat/dm-kai", "ollie://chat/room", "https://example.com"])
+        XCTAssertEqual(ChatLinks.chatId(from: URL(string: "ollie://chat/dm-ana")!), "dm-ana")
         XCTAssertNil(ChatLinks.chatId(from: URL(string: "https://example.com/chat/x")!))
     }
 }

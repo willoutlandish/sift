@@ -7,7 +7,7 @@ struct AgentMessage: Identifiable, Equatable {
     let role: String
     let text: String
     var ts: Int64? = nil
-    /// Sift remembers its own prompts: the CLI gives them random ids, the same as scripts.
+    /// Ollie remembers its own prompts: the CLI gives them random ids, the same as scripts.
     var sentHere = false
 
     var isAssistant: Bool { role == "assistant" }
@@ -133,7 +133,7 @@ struct AgentStep: Identifiable, Equatable {
     /// Output, diff, log, thought or plugin data, bounded by the reader.
     var detail = ""
     var todos: [Todo] = []
-    /// No Sift view exists for this content; it is named, not hidden.
+    /// No Ollie view exists for this content; it is named, not hidden.
     var unrendered = false
 
     var failed: Bool { status == "failed" }
@@ -383,7 +383,7 @@ final class PaseoClient {
             return try ChildStream(helper, arguments, environment: Self.helperEnvironment, onLine: { line in
                 let text = String(decoding: line, as: UTF8.self)
                 // Only the script writes readings and error records, so one of those proves Node has
-                // loaded it and the file can go: a helper that outlives Sift (it exits when Sift's end
+                // loaded it and the file can go: a helper that outlives Ollie (it exits when Ollie's end
                 // of stdin closes) leaves nothing behind. Node's own warnings prove nothing.
                 let loadedNow = { if !loaded { loaded = true; try? FileManager.default.removeItem(at: script) } }
                 if let reading = Self.reading(text) { loadedNow(); onReading(reading) }

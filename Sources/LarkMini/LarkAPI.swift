@@ -603,7 +603,7 @@ actor LarkAPI {
         return text.replacingOccurrences(of: #"\{[a-z_]+\}"#, with: "someone", options: .regularExpression)
     }
 
-    /// Types Sift has no view for keep a name and their own summary, if any.
+    /// Types Ollie has no view for keep a name and their own summary, if any.
     static func otherText(type: String, content: [String: Any]) -> String {
         let labels = ["share_calendar_event": "Calendar event", "calendar": "Calendar invitation",
                       "general_calendar": "Calendar event", "todo": "Task", "vote": "Poll", "location": "Location",
@@ -675,7 +675,7 @@ actor LarkAPI {
         return clip(lines.joined(separator: "\n"))
     }
 
-    /// The most text one message shows in Sift.
+    /// The most text one message shows in Ollie.
     static let textLimit = 20_000
 
     static func clip(_ text: String, limit: Int = textLimit) -> String {

@@ -987,7 +987,7 @@ final class Store: ObservableObject {
         companionURL = state.companionURL
         guard let raw = state.companionURL,
               let base = CompanionConfig.validatedURL(raw) else {
-            errorText = "Set a Companion URL with: sift companion set --url http://host:port"
+            errorText = "Set a Companion URL with: ollie companion set --url http://host:port"
             return
         }
         errorText = nil
@@ -1354,7 +1354,7 @@ final class Store: ObservableObject {
                 store.messages[chat.id] = []
             }
         }
-        // Group chat: replies, edits, voice, video, stickers, forwards and a type Sift cannot draw.
+        // Group chat: replies, edits, voice, video, stickers, forwards and a type Ollie cannot draw.
         let design = { (id: String, sender: String, type: String, text: String, at: Int64) in
             ChatMessage(id: id, chatId: "c3", type: type, text: text, ts: minute + at,
                         sender: Sender(id: sender, name: "", isMe: sender == "me"), imageKey: nil, fileKey: nil, fileName: nil, deleted: false)

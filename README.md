@@ -1,14 +1,12 @@
-# Sift
+# Ollie
 
-A small floating Lark companion for macOS. A green head rests at the right
+A small floating Lark companion for macOS. A bright duck head rests at the right
 edge of the screen; click it for a compact panel with your unread Lark chats,
 pinned chats and, optionally, a conversation with a coding-agent "Control"
 session running in [Paseo](https://paseo.sh).
 
-Sift is a standalone app on Lark's public Open API. It does not patch, read or
+Ollie is a standalone app on Lark's public Open API. It does not patch, read or
 automate the Lark desktop client.
-
-![Sift inbox](docs/screenshots/inbox.png) ![Sift Control](docs/screenshots/control.png)
 
 ## Features
 
@@ -26,7 +24,7 @@ automate the Lark desktop client.
   group together.
 - **Companion (optional).** Opens the real Companion web app in its own
   resizable window with a persistent session, configured with
-  `sift companion set --url http://host:port`.
+  `ollie companion set --url http://host:port`.
 - **Control seat (optional).** Talk to a Paseo agent session from the panel:
   readable replies with Markdown, named speakers, a live activity row, the
   work between replies (commands, edits, checklists, failures) folded into
@@ -52,7 +50,7 @@ automate the Lark desktop client.
 ```bash
 git clone https://github.com/jl97mcad/sift.git
 cd sift
-./install.sh        # builds ~/Applications/Sift.app and ~/.local/bin/sift
+./install.sh        # builds ~/Applications/Ollie.app and ~/.local/bin/ollie
 ```
 
 Building from source avoids Gatekeeper prompts: release builds are signed
@@ -77,14 +75,14 @@ ad hoc, not notarized. An agent can run the whole setup; see
 2. Store the app credentials. The secret is read from stdin, never argv:
 
    ```bash
-   printf '%s' "$APP_SECRET" | sift setup --app-id cli_xxxxxxxx --app-secret -
+   printf '%s' "$APP_SECRET" | ollie setup --app-id cli_xxxxxxxx --app-secret -
    ```
 
 3. Sign in with Lark's device flow:
 
    ```bash
-   sift login --no-wait            # prints a code and a URL to approve
-   sift login --device-code CODE   # after approving in the browser
+   ollie login --no-wait            # prints a code and a URL to approve
+   ollie login --device-code CODE   # after approving in the browser
    ```
 
    Or press "Sign in with Lark" in the app.
@@ -92,27 +90,27 @@ ad hoc, not notarized. An agent can run the whole setup; see
 4. Check it:
 
    ```bash
-   sift doctor
-   sift chats --limit 5
+   ollie doctor
+   ollie chats --limit 5
    ```
 
 ### Control seat (optional)
 
 ```bash
-sift control set --agent-id <paseo-agent-id> --host tcp://<daemon-host>:<port>
-sift control status
+ollie control set --agent-id <paseo-agent-id> --host tcp://<daemon-host>:<port>
+ollie control status
 ```
 
-Or use Settings → Control seat. Sift sends with `paseo send` and keeps one
+Or use Settings → Control seat. Ollie sends with `paseo send` and keeps one
 connection open through the installed Paseo app's own client: Paseo's events
 bring a fresh, bounded, typed timeline when something changes. Only
 prompts and replies show as messages; thoughts and tool steps show as labelled,
 collapsed work. When a handoff archives the
 seated session and exactly one live session on the same host carries its
-`seat` label, Sift follows it. Seats without a `seat` label never move.
+`seat` label, Ollie follows it. Seats without a `seat` label never move.
 
 Open asks come from the same daemon, through `control-plugins`' read-only
-`asks.open` call. Without that suite, asks are off; if the read fails, Sift
+`asks.open` call. Without that suite, asks are off; if the read fails, Ollie
 says the state is unknown rather than showing none.
 
 ## CLI
@@ -121,34 +119,34 @@ Every command prints one JSON object and exits non-zero on failure.
 
 | Command | Purpose |
 | --- | --- |
-| `sift setup --app-id ID --app-secret -` | store app credentials |
-| `sift bootstrap --app-id ID [--agent-id ID --host H]` | credentials + sign-in code (+ seat) on a fresh Mac |
-| `sift login [--no-wait] [--device-code CODE]` | device-flow sign-in |
-| `sift status` / `sift doctor` | sign-in state; credential, token and chat checks |
-| `sift chats [--limit N]` | chat list |
-| `sift messages --chat-id ID [--limit N]` | one chat's history |
-| `sift pins list \| add <chat_id> \| add --name "Room" \| remove <chat_id> \| clear` | pinned chats |
-| `sift control set \| status \| send "text" \| logs [--tail N] \| digest \| asks \| off` | Control seat |
-| `sift companion set --url URL \| status \| open [--path PATH]` | Companion window |
-| `sift selftest` / `sift open` / `sift logout` | geometry self-test; open the app; forget the session |
+| `ollie setup --app-id ID --app-secret -` | store app credentials |
+| `ollie bootstrap --app-id ID [--agent-id ID --host H]` | credentials + sign-in code (+ seat) on a fresh Mac |
+| `ollie login [--no-wait] [--device-code CODE]` | device-flow sign-in |
+| `ollie status` / `ollie doctor` | sign-in state; credential, token and chat checks |
+| `ollie chats [--limit N]` | chat list |
+| `ollie messages --chat-id ID [--limit N]` | one chat's history |
+| `ollie pins list \| add <chat_id> \| add --name "Room" \| remove <chat_id> \| clear` | pinned chats |
+| `ollie control set \| status \| send "text" \| logs [--tail N] \| digest \| asks \| off` | Control seat |
+| `ollie companion set --url URL \| status \| open [--path PATH]` | Companion window |
+| `ollie selftest` / `ollie open` / `ollie logout` | geometry self-test; open the app; forget the session |
 
 ## Privacy and data
 
-- Everything stays on your Mac, in `~/Library/Application Support/Sift/`:
+- Everything stays on your Mac, in `~/Library/Application Support/Ollie/`:
   `credentials.json` (app secret and tokens), `state.json` (pins, settings,
   Control seat) and `cache.json` (chat list and previews), each mode 0600.
   Device-only preferences use macOS user defaults.
-- Sift talks only to Lark's Open API and, if you set a Control seat, to that
+- Ollie talks only to Lark's Open API and, if you set a Control seat, to that
   Paseo daemon. There is no telemetry and no third-party service.
 - Notifications are off until you enable them.
 
 ## How it works
 
-- Lark has no push channel for personal messages, so Sift polls. Each tick
+- Lark has no push channel for personal messages, so Ollie polls. Each tick
   reads the 20 most active chats once and fetches previews only for the top
   two and for chats that moved up; the open chat is read every tick, and pinned
   chats too while the panel is open. The interval is configurable.
-- The API has no unread counter. Sift remembers the last message it showed per
+- The API has no unread counter. Ollie remembers the last message it showed per
   chat and marks newer messages from other people as unread.
 - Direct chats list no picture and the contact profile endpoint may refuse a
   user token, so pictures come from user search, matched on the exact person.
@@ -161,7 +159,7 @@ Every command prints one JSON object and exits non-zero on failure.
   up to about 20 seconds after the message.
 - The Control read depends on the Paseo desktop app's internal layout (0.14).
   A different version may fail visibly with "Paseo conversation data is
-  unavailable"; Sift then falls back to reading every 15 seconds.
+  unavailable"; Ollie then falls back to reading every 15 seconds.
 - The live Control connection keeps one Paseo helper process running (about
   190 MB of memory, close to no CPU at rest).
 - Control history shows the latest 80 timeline entries, up to 400 with
@@ -178,10 +176,10 @@ swift build
 CFFIXED_USER_HOME="$PWD/dist/test-home" swift test   # tests need an isolated home
 .build/debug/LarkMini --cli selftest
 make demo                # app with fixture data; no credentials, no network
-make app                 # dist/Sift.app
-make dmg                 # dist/Sift.dmg
+make app                 # dist/Ollie.app
+make dmg                 # dist/Ollie.dmg
 ```
 
-`open dist/Sift.app --args --demo` accepts `--demo-chat`, `--demo-control`,
+`open dist/Ollie.app --args --demo` accepts `--demo-chat`, `--demo-control`,
 `--demo-needs-you` and `--demo-search`. Design decisions are recorded in
 [docs/decisions](docs/decisions).

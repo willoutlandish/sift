@@ -2,7 +2,7 @@ import AppKit
 import CoreServices
 import Foundation
 
-/// Small command surface so an agent can configure Sift without touching the UI.
+/// Small command surface so an agent can configure Ollie without touching the UI.
 enum CLI {
     static func run(arguments: [String]) {
         if arguments.first == "companion" {
@@ -40,7 +40,7 @@ enum CLI {
             case "selftest": return selftest()
             case "help", "--help", "-h": print(usage); return 0
             default:
-                return fail("Unknown command '\(command)'. Try sift help.")
+                return fail("Unknown command '\(command)'. Try ollie help.")
             }
         } catch {
             return fail(error.localizedDescription)
@@ -66,7 +66,7 @@ enum CLI {
             return fail("No app secret given. Use --app-secret-file, --app-secret - (stdin) or --from-lark-cli")
         }
         store.setCredentials(TokenStore.Credentials(appId: appId, appSecret: appSecret))
-        return ok(["ok": true, "app_id": appId, "stored": "~/Library/Application Support/Sift/credentials.json"])
+        return ok(["ok": true, "app_id": appId, "stored": "~/Library/Application Support/Ollie/credentials.json"])
     }
 
     /// One command for another person's agent: store credentials, start the
@@ -84,7 +84,7 @@ enum CLI {
             secret = readStdinLine()
         }
         guard let appSecret = secret?.trimmingCharacters(in: .whitespacesAndNewlines), !appSecret.isEmpty else {
-            return fail("No app secret given. Pipe it on stdin: printf '%s' \"$SECRET\" | sift bootstrap --app-id ...")
+            return fail("No app secret given. Pipe it on stdin: printf '%s' \"$SECRET\" | ollie bootstrap --app-id ...")
         }
 
         let tokens = TokenStore()
@@ -100,7 +100,7 @@ enum CLI {
             "verification_url": code.verifyURL.absoluteString,
             "device_code": code.deviceCode,
             "expires_in": code.expiresIn,
-            "next": "sift login --device-code \(code.deviceCode)"
+            "next": "ollie login --device-code \(code.deviceCode)"
         ]
 
         if let agentId = flags.value("--agent-id") {
@@ -141,7 +141,7 @@ enum CLI {
                 "device_code": code.deviceCode,
                 "expires_in": code.expiresIn,
                 "interval": code.interval,
-                "next": "sift login --device-code \(code.deviceCode)"
+                "next": "ollie login --device-code \(code.deviceCode)"
             ])
         }
         try await api.pollDeviceFlow(code)
@@ -203,7 +203,7 @@ enum CLI {
     private static func messagesCommand(_ args: [String]) async throws -> Int32 {
         let flags = Flags(args)
         guard let chatId = flags.value("--chat-id") else {
-            return fail("messages needs --chat-id (see sift chats)")
+            return fail("messages needs --chat-id (see ollie chats)")
         }
         let limit = Int(flags.value("--limit") ?? "10") ?? 10
         let page = try await LarkAPI(tokens: TokenStore()).messages(chatId: chatId, pageSize: min(50, max(1, limit)))
@@ -365,7 +365,7 @@ enum CLI {
         case "open":
             guard let raw = state.current.companionURL,
                   let base = CompanionConfig.validatedURL(raw) else {
-                return fail("No Companion URL configured. Run sift companion set --url http://host:port")
+                return fail("No Companion URL configured. Run ollie companion set --url http://host:port")
             }
             let path = CompanionPath.accepted(Flags(args).value("--path"))
             guard let target = CompanionConfig.targetURL(base: base, path: path) else {
@@ -410,7 +410,7 @@ enum CLI {
     }
 
     /// The CLI cannot read the app's live WebKit cookie store, so ask a running
-    /// Sift with the same support directory. nil means no app answered.
+    /// Ollie with the same support directory. nil means no app answered.
     private static func companionSessionStatus(for base: URL) -> Bool? {
         let request = UUID().uuidString
         let prefix = "companion-status-\(request)-"
@@ -454,7 +454,7 @@ enum CLI {
 
     private static func companionOpenURL(path: String) -> URL? {
         var components = URLComponents()
-        components.scheme = "sift"
+        components.scheme = "ollie"
         components.host = "companion"
         components.path = "/open"
         components.queryItems = [URLQueryItem(name: "path", value: path)]
@@ -466,10 +466,10 @@ enum CLI {
         var checks: [[String: Any]] = []
         let creds = store.credentials
         checks.append(["check": "app credentials", "ok": creds != nil,
-                       "detail": creds.map { "app id \($0.appId)" } ?? "run sift setup"])
+                       "detail": creds.map { "app id \($0.appId)" } ?? "run ollie setup"])
         let tokenOK = (try? await LarkAPI(tokens: store).accessToken()) != nil
         checks.append(["check": "user token", "ok": tokenOK,
-                       "detail": tokenOK ? "valid or refreshed" : "run sift login"])
+                       "detail": tokenOK ? "valid or refreshed" : "run ollie login"])
         if tokenOK {
             do {
                 let api = LarkAPI(tokens: store)
@@ -559,14 +559,14 @@ enum CLI {
     }
 
     private static let usage = """
-    sift — configure and inspect Sift from the terminal
+    ollie — configure and inspect Ollie from the terminal
 
     USAGE
-      sift <command> [flags]
+      ollie <command> [flags]
 
     COMMANDS
       bootstrap Credentials + sign-in code + optional Control seat in one call
-                  printf '%s' "$SECRET" | sift bootstrap --app-id ID
+                  printf '%s' "$SECRET" | ollie bootstrap --app-id ID
                     [--agent-id ID --host tcp://host:6767]
       setup     Store the Lark app id and secret
                   --app-id ID --app-secret-file PATH   read secret from a file
@@ -581,11 +581,11 @@ enum CLI {
       control   Optional Paseo seat pinned above your chats
                   set --agent-id ID [--host H] [--provider paseo] [--title T]
                   status | send "text" | logs [--tail N] | digest | asks | off
-      companion Open the real Companion web app in its own Sift window
+      companion Open the real Companion web app in its own Ollie window
                   set --url http://host:port
                   status | open [--path /companion/app/...]
       doctor    Check credentials, token and chat access
-      open      Open the Sift app
+      open      Open the Ollie app
       logout    Forget the current session
 
     All commands print JSON on stdout and exit 1 on failure.

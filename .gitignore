@@ -1,6 +1,5 @@
 .build/
 dist/
-Support/AppIcon.icns
 Support/LarkIcon.png
 Support/AppIcon.iconset/
 .DS_Store

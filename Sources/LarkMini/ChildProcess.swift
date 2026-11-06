@@ -33,7 +33,7 @@ enum ChildProcess {
     static func spawn(_ path: String, _ arguments: [String], environment: [String: String],
                       input: Bool) throws -> (pid: pid_t, output: Int32, input: Int32?) {
         // With SIGCHLD ignored the system reaps children itself, so a pid (and group id) could be
-        // reused before Sift sees the exit; supervising by group would then be unsafe.
+        // reused before Ollie sees the exit; supervising by group would then be unsafe.
         guard childrenAreWaitable() else { throw LaunchError(code: ECHILD) }
         var out: [Int32] = [-1, -1], inp: [Int32] = [-1, -1]
         guard pipe(&out) == 0 else { throw LaunchError(code: errno) }

@@ -7,6 +7,22 @@ struct RailView: View {
 
     var body: some View {
         VStack(spacing: 8) {
+            Button { store.openCompanion() } label: {
+                VStack(spacing: 4) {
+                    CompanionMark(size: 28)
+                    Text("Companion").font(.system(size: 11, weight: .medium))
+                        .lineLimit(1).minimumScaleFactor(0.75)
+                }
+                .frame(width: 48, height: 58)
+                .background(RoundedRectangle(cornerRadius: 12).fill(SiftStyle.raised))
+                .overlay(RoundedRectangle(cornerRadius: 12)
+                    .strokeBorder(Color(red: 0.82, green: 0.94, blue: 0.08).opacity(0.55)))
+            }
+            .buttonStyle(.plain)
+            .help("Open Companion")
+            .accessibilityLabel("Open Companion")
+            .padding(.top, 10)
+
             Button { store.showInbox() } label: {
                 VStack(spacing: 4) {
                     FaceIcon(size: 32)
@@ -17,20 +33,7 @@ struct RailView: View {
             }
             .buttonStyle(.plain)
             .help("Inbox (⌘0)")
-            .accessibilityLabel("Sift Inbox")
-            .padding(.top, 10)
-
-            Button { store.openCompanion() } label: {
-                VStack(spacing: 4) {
-                    CompanionMark(size: 28)
-                    Text("Companion").font(.system(size: 11, weight: .medium))
-                        .lineLimit(1).minimumScaleFactor(0.75)
-                }
-                .frame(width: 48, height: 54)
-            }
-            .buttonStyle(.plain)
-            .help("Open Companion")
-            .accessibilityLabel("Open Companion")
+            .accessibilityLabel("Ollie Inbox")
 
             if store.controlSeat != nil {
                 Button { store.openControl() } label: {
@@ -70,7 +73,7 @@ struct RailView: View {
                 IconButton(symbol: "magnifyingglass", help: "Find a chat (⌘K)") { store.openSearch() }
                 IconButton(symbol: "gearshape", help: "Settings (⌘,)") { store.showingSettings = true }
                     .background(selection(store.showingSettings))
-                IconButton(symbol: "chevron.right", help: "Collapse Sift (Esc)") {
+                IconButton(symbol: "chevron.right", help: "Collapse Ollie (Esc)") {
                     NotificationCenter.default.post(name: .collapsePanel, object: nil)
                 }
             }

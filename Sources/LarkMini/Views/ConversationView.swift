@@ -35,7 +35,7 @@ struct ConversationView: View {
                 _ = provider.loadObject(ofClass: URL.self) { url, error in
                     DispatchQueue.main.async {
                         guard let url else {
-                            store.reportUnsent(["\(name): \(error?.localizedDescription ?? "Sift could not read this item as a file")"])
+                            store.reportUnsent(["\(name): \(error?.localizedDescription ?? "Ollie could not read this item as a file")"])
                             return
                         }
                         Task { await store.sendAttachment(url, to: target) }
@@ -54,7 +54,7 @@ struct ConversationView: View {
                 Text(chat.isP2P ? "Lark · Direct message" : "Lark · Group conversation")
                     .font(.system(size: 11)).foregroundStyle(SiftStyle.secondary)
             }
-            .panelDragHandle().help("Drag to move Sift")
+            .panelDragHandle().help("Drag to move Ollie")
             Spacer(minLength: 0)
             if let link = chat.link {
                 IconButton(symbol: "arrow.up.forward.app", help: "Open in Lark") {
@@ -268,7 +268,7 @@ struct MessageBubble: View {
     }
 }
 
-/// Voice, video, stickers, shared chats and contacts, forwarded bundles and types Sift cannot draw.
+/// Voice, video, stickers, shared chats and contacts, forwarded bundles and types Ollie cannot draw.
 struct MediaContent: View {
     @EnvironmentObject var store: Store
     let message: ChatMessage
@@ -293,7 +293,7 @@ struct MediaContent: View {
             VStack(alignment: .leading, spacing: 4) {
                 Label(joined("Shared group", store.chatName(id) ?? ""), systemImage: "person.3").font(.system(size: 13))
                 if store.chatName(id) != nil {
-                    Button("Open in Sift") { store.openLinkedChat(id) }.buttonStyle(.plain)
+                    Button("Open in Ollie") { store.openLinkedChat(id) }.buttonStyle(.plain)
                         .font(.system(size: 12)).foregroundStyle(SiftStyle.green)
                 } else { LimitNote(text: "You are not in this group.", link: nil) }
             }
@@ -304,7 +304,7 @@ struct MediaContent: View {
         case .other:
             VStack(alignment: .leading, spacing: 4) {
                 Text(message.text).font(.system(size: 12.5)).textSelection(.enabled).fixedSize(horizontal: false, vertical: true)
-                LimitNote(text: "Sift has no view for this yet.", link: chatLink)
+                LimitNote(text: "Ollie has no view for this yet.", link: chatLink)
             }
         }
     }
@@ -430,7 +430,7 @@ struct ResourceImage: View {
             if let hit = Self.thumbnails.object(forKey: key) { image = hit; return }
             do {
                 let data = try await store.api.imageData(messageId: messageId, key: fileKey)
-                guard let thumbnail = Self.thumbnail(data) else { failure = "Lark sent an image Sift cannot read."; return }
+                guard let thumbnail = Self.thumbnail(data) else { failure = "Lark sent an image Ollie cannot read."; return }
                 Self.thumbnails.setObject(thumbnail, forKey: key)
                 image = thumbnail
             } catch {

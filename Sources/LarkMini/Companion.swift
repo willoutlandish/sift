@@ -98,7 +98,7 @@ struct CompanionNavigationPolicy: Equatable {
 }
 
 extension Notification.Name {
-    static let companionStatusRequest = Notification.Name("com.jonathan.sift.companion-status-request")
+    static let companionStatusRequest = Notification.Name("com.outlandish.ollie.companion-status-request")
 }
 
 enum CompanionSession {

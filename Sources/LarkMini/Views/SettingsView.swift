@@ -227,12 +227,12 @@ struct SettingsView: View {
 
     private var dangerSection: some View {
         HStack {
-            Button("Quit Sift") { NSApp.terminate(nil) }
+            Button("Quit Ollie") { NSApp.terminate(nil) }
                 .buttonStyle(.plain)
                 .font(.system(size: 12))
                 .foregroundStyle(SiftStyle.secondary)
             Spacer()
-            Text("Sift · v0.1").font(.system(size: 11)).foregroundStyle(SiftStyle.muted)
+            Text("Ollie · v0.1").font(.system(size: 11)).foregroundStyle(SiftStyle.muted)
         }
     }
 

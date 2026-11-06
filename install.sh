@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Install Sift from a fresh checkout. Safe to re-run.
+# Install Ollie from a fresh checkout. Safe to re-run.
 set -euo pipefail
 cd "$(dirname "$0")"
 
@@ -13,8 +13,8 @@ make install
 cat <<'TEXT'
 
 Installed
-  ~/Applications/Sift.app
-  ~/.local/bin/sift
+  ~/Applications/Ollie.app
+  ~/.local/bin/ollie
 
 Next, in this order (an agent can run all of it):
 
@@ -26,23 +26,23 @@ Next, in this order (an agent can run all of it):
      Copy the App ID and App Secret.
 
   2. Store the credentials. The secret goes in on stdin, never argv:
-       printf '%s' "$APP_SECRET" | sift setup --app-id cli_xxx --app-secret -
+       printf '%s' "$APP_SECRET" | ollie setup --app-id cli_xxx --app-secret -
 
   3. Sign in. This prints a code and a URL for the person to approve:
-       sift login --no-wait
-       sift login --device-code <device_code>
+       ollie login --no-wait
+       ollie login --device-code <device_code>
 
   4. Check it:
-       sift doctor
-       sift chats --limit 5
+       ollie doctor
+       ollie chats --limit 5
 
   5. Optional Control seat (Paseo):
-       sift control set --agent-id <id> --host tcp://<host>:6767
+       ollie control set --agent-id <id> --host tcp://<host>:6767
 
   6. Open the app:
-       open ~/Applications/Sift.app
+       open ~/Applications/Ollie.app
 
-Secrets live in ~/Library/Application Support/Sift/credentials.json (0600).
+Secrets live in ~/Library/Application Support/Ollie/credentials.json (0600).
 Never print them. `bootstrap` overwrites credentials; on an existing install use
 `setup` instead.
 TEXT
