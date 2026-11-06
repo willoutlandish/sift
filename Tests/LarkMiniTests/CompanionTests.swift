@@ -150,6 +150,95 @@ final class CompanionTests: XCTestCase {
     }
 
 
+
+    func testApprovalDecisionBodiesMatchTheWeb() throws {
+        let listJSON = #"""
+        {"counts":{"pending":1,"mine":1},"shops":[
+          {"resource":"north","name":"North Studio","services":[
+            {"label":"North agent","items":[
+              {"id":"send-1","question":"Approve the reply","version":"v1","send_version":"sv1",
+               "can_answer":true,"answers":["approve","change","skip"],"source":"send_approval",
+               "kind":"agent_ask","status":"needs_you","age_seconds":60,
+               "evidence":[{"label":"Message to send","text":"Hello there"}]}
+            ]}
+          ]}
+        ]}
+        """#
+        let list = try JSONDecoder().decode(CompanionApprovalsList.self, from: Data(listJSON.utf8))
+        let item = try XCTUnwrap(CompanionTodos.make(from: list).shops.first?.items.first)
+        XCTAssertEqual(item.payloadPreview, "Hello there")
+        let approve = try XCTUnwrap(CompanionDecisionRequests.decisionRequest(item: item, answer: "approve"))
+        XCTAssertEqual(approve.path, "/api/oo/approvals/answer")
+        XCTAssertEqual(approve.body["answer"] as? String, "approve")
+        let rows = try XCTUnwrap(approve.body["items"] as? [[String: Any]])
+        XCTAssertEqual(rows.first?["id"] as? String, "send-1")
+        XCTAssertEqual(rows.first?["version"] as? String, "v1")
+        XCTAssertEqual(rows.first?["send_version"] as? String, "sv1")
+        let decline = try XCTUnwrap(CompanionDecisionRequests.decisionRequest(item: item, answer: "skip"))
+        XCTAssertEqual(decline.body["answer"] as? String, "skip")
+
+        let shopJSON = #"""
+        {"counts":{"pending":1,"mine":1},"shops":[
+          {"resource":"north","name":"North Studio","services":[
+            {"label":"North agent","items":[
+              {"id":"draft-1","question":"Send the draft","age_seconds":30,
+               "content_sha256":"hash","draft_kind":"creator_dm","draft_id":42,
+               "send_type":"creator_dm","content_clear":true,"can_decide":true,
+               "preview":"Hi Dana, here is the sample.","status":"pending"}
+            ]}
+          ]}
+        ]}
+        """#
+        let shopList = try JSONDecoder().decode(CompanionApprovalsList.self, from: Data(shopJSON.utf8))
+        let shopItem = try XCTUnwrap(CompanionTodos.make(from: shopList).shops.first?.items.first)
+        XCTAssertEqual(shopItem.answers, ["approve", "skip"])
+        let shopApprove = try XCTUnwrap(CompanionDecisionRequests.decisionRequest(item: shopItem, answer: "approve"))
+        XCTAssertEqual(shopApprove.path, "/api/oo/shops/north/companion/approvals")
+        XCTAssertEqual(shopApprove.body["draft_kind"] as? String, "creator_dm")
+        XCTAssertEqual(shopApprove.body["draft_id"] as? Int, 42)
+        XCTAssertEqual(shopApprove.body["send_type"] as? String, "creator_dm")
+        XCTAssertEqual(shopApprove.body["content_sha256"] as? String, "hash")
+        XCTAssertEqual(shopApprove.body["decision"] as? String, "approved")
+        let shopDecline = try XCTUnwrap(CompanionDecisionRequests.decisionRequest(item: shopItem, answer: "skip"))
+        XCTAssertEqual(shopDecline.body["decision"] as? String, "refused")
+    }
+
+    func testApprovalDisabledReasonAndOutcomes() throws {
+        let disabledJSON = #"""
+        {"counts":{"pending":1,"mine":1},"shops":[
+          {"resource":"north","name":"North Studio","services":[
+            {"label":"North agent","items":[
+              {"id":"draft-2","question":"Empty draft","content_sha256":"hash","draft_kind":"creator_dm",
+               "draft_id":43,"send_type":"creator_dm","content_clear":false,"can_decide":true,"preview":""}
+            ]}
+          ]}
+        ]}
+        """#
+        let list = try JSONDecoder().decode(CompanionApprovalsList.self, from: Data(disabledJSON.utf8))
+        let item = try XCTUnwrap(CompanionTodos.make(from: list).shops.first?.items.first)
+        XCTAssertEqual(item.disabledReason, "This reply has nothing to send. Skip it or ask for a change.")
+
+        let ok = CompanionFetchReply(status: 200, contentType: "application/json",
+                                     body: #"{"results":[{"id":"send-1","status":"ok","message":"Sent"}]}"#, url: "")
+        XCTAssertEqual(CompanionDecisionOutcomeParser.outcome(api: .answers, itemId: "send-1",
+                                                              answer: "approve", reply: ok),
+                       CompanionDecisionOutcome(message: "Sent", remove: true))
+        let failed = CompanionFetchReply(status: 200, contentType: "application/json",
+                                        body: #"{"results":[{"id":"send-1","status":"failed","message":"Nope"}]}"#, url: "")
+        XCTAssertEqual(CompanionDecisionOutcomeParser.outcome(api: .answers, itemId: "send-1",
+                                                              answer: "approve", reply: failed),
+                       CompanionDecisionOutcome(message: "Nope", remove: false))
+        let shopOK = CompanionFetchReply(status: 200, contentType: "application/json", body: "{}", url: "")
+        XCTAssertEqual(CompanionDecisionOutcomeParser.outcome(api: .shop, itemId: "draft-1",
+                                                              answer: "approve", reply: shopOK),
+                       CompanionDecisionOutcome(message: "Approved", remove: true))
+        let shopError = CompanionFetchReply(status: 422, contentType: "application/json",
+                                           body: #"{"message":"Stale draft"}"#, url: "")
+        XCTAssertEqual(CompanionDecisionOutcomeParser.outcome(api: .shop, itemId: "draft-1",
+                                                              answer: "approve", reply: shopError),
+                       CompanionDecisionOutcome(message: "Stale draft", remove: false))
+    }
+
     func testApprovalsTodoGroupingOrderingAndTruncation() throws {
         let json = #"""
         {

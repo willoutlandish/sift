@@ -22,6 +22,8 @@ struct CompanionApprovalsList: Decodable {
     struct Item: Decodable {
         struct Agent: Decodable { let label: String? }
         struct ShopRef: Decodable { let resource: String?; let name: String? }
+        struct Recommendation: Decodable { let text: String?; let value: String? }
+        struct Evidence: Decodable { let label: String?; let text: String?; let url: String? }
 
         let id: String
         let source: String?
@@ -30,11 +32,45 @@ struct CompanionApprovalsList: Decodable {
         let age_seconds: Int?
         let agent: Agent?
         let shop: ShopRef?
+        let version: String?
+        let send_version: String?
+        let can_answer: Bool?
+        let answers: [String]?
+        let recommendation: Recommendation?
+        let status: String?
+        let status_reason: String?
+        let needs_you_because: String?
+        let content_sha256: String?
+        let draft_kind: String?
+        let draft_id: Int?
+        let send_type: String?
+        let content_clear: Bool?
+        let can_decide: Bool?
+        let preview: String?
+        let evidence: [Evidence]?
+        let link: String?
     }
 
     let shops: [Shop]
     let order: [String]?
     let counts: Counts?
+}
+
+struct CompanionDecisionTarget: Equatable {
+    enum API: Equatable {
+        case answers
+        case shop
+    }
+
+    let api: API
+    let id: String
+    let resource: String?
+    let version: String?
+    let sendVersion: String?
+    let contentSha256: String?
+    let draftKind: String?
+    let draftId: Int?
+    let sendType: String?
 }
 
 struct CompanionTodoItem: Identifiable, Equatable {
@@ -43,6 +79,25 @@ struct CompanionTodoItem: Identifiable, Equatable {
     let title: String
     let age: String
     let clickPath: String
+    let answers: [String]
+    let canAnswer: Bool
+    let disabledReason: String?
+    let payloadPreview: String?
+    let decision: CompanionDecisionTarget?
+}
+
+struct CompanionDecisionRequest: Equatable {
+    let path: String
+    let body: [String: Any]
+
+    static func == (left: CompanionDecisionRequest, right: CompanionDecisionRequest) -> Bool {
+        left.path == right.path && NSDictionary(dictionary: left.body).isEqual(to: right.body)
+    }
+}
+
+struct CompanionDecisionOutcome: Equatable {
+    let message: String
+    let remove: Bool
 }
 
 struct CompanionTodoShop: Identifiable, Equatable {
@@ -138,9 +193,30 @@ enum CompanionTodos {
                     let resource = nonEmpty(item.shop?.resource) ?? nonEmpty(shop.resource)
                     let label = nonEmpty(item.agent?.label) ?? nonEmpty(service.label) ?? "An agent"
                     let title = nonEmpty(item.question) ?? nonEmpty(item.kind) ?? nonEmpty(item.source) ?? "Approval"
-                    let todo = CompanionTodoItem(id: item.id, label: label, title: title,
-                                                 age: ageText(item.age_seconds),
-                                                 clickPath: CompanionApprovals.clickPath(resource: resource))
+                    let offered = item.answers ?? (item.can_decide == true ? ["approve", "skip"] : [])
+                    let preview = nonEmpty(item.preview)
+                        ?? nonEmpty(item.evidence?.first { $0.label == "Message to send" }?.text)
+                        ?? nonEmpty(item.recommendation?.text)
+                    let target = CompanionDecisionTarget(
+                        api: item.content_sha256 == nil ? .answers : .shop,
+                        id: item.id,
+                        resource: resource,
+                        version: item.version,
+                        sendVersion: item.send_version,
+                        contentSha256: item.content_sha256,
+                        draftKind: item.draft_kind,
+                        draftId: item.draft_id,
+                        sendType: item.send_type)
+                    let todo = CompanionTodoItem(
+                        id: item.id, label: label, title: title,
+                        age: ageText(item.age_seconds),
+                        clickPath: CompanionApprovals.clickPath(resource: resource),
+                        answers: offered,
+                        canAnswer: item.can_answer ?? item.can_decide ?? false,
+                        disabledReason: item.content_clear == false
+                            ? "This reply has nothing to send. Skip it or ask for a change." : nil,
+                        payloadPreview: preview,
+                        decision: target)
                     items.append((items.count, todo))
                 }
             }
@@ -172,6 +248,88 @@ enum CompanionTodos {
     private static func nonEmpty(_ value: String?) -> String? {
         let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         return trimmed.isEmpty ? nil : trimmed
+    }
+}
+
+enum CompanionDecisionRequests {
+    static func decisionRequest(item: CompanionTodoItem, answer: String) -> CompanionDecisionRequest? {
+        guard let target = item.decision, item.canAnswer else { return nil }
+        switch target.api {
+        case .answers:
+            let rows: [[String: Any]] = [[
+                "id": target.id,
+                "version": target.version ?? NSNull(),
+                "send_version": target.sendVersion ?? NSNull()
+            ]]
+            return CompanionDecisionRequest(
+                path: "/api/oo/approvals/answer",
+                body: ["items": rows, "answer": answer])
+        case .shop:
+            guard let resource = target.resource,
+                  let kind = target.draftKind,
+                  let id = target.draftId,
+                  let sendType = target.sendType,
+                  let hash = target.contentSha256 else { return nil }
+            return CompanionDecisionRequest(
+                path: "/api/oo/shops/\(resource.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? resource)/companion/approvals",
+                body: [
+                    "draft_kind": kind,
+                    "draft_id": id,
+                    "send_type": sendType,
+                    "content_sha256": hash,
+                    "decision": answer == "approve" ? "approved" : "refused"
+                ])
+        }
+    }
+}
+
+enum CompanionDecisionOutcomeParser {
+    static func outcome(api: CompanionDecisionTarget.API, itemId: String, answer: String,
+                        reply: CompanionFetchReply?) -> CompanionDecisionOutcome {
+        guard let reply else { return CompanionDecisionOutcome(message: "Couldn't reach Companion.", remove: false) }
+        switch api {
+        case .answers:
+            guard reply.status == 200,
+                  let data = reply.body.data(using: .utf8),
+                  let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let results = object["results"] as? [[String: Any]],
+                  let result = results.first(where: { $0["id"] as? String == itemId }) else {
+                return CompanionDecisionOutcome(message: "Couldn't save that decision.", remove: false)
+            }
+            let status = result["status"] as? String ?? "failed"
+            let message = result["message"] as? String
+            switch status {
+            case "ok":
+                return CompanionDecisionOutcome(message: message ?? (answer == "approve" ? "Approved" : "Declined"),
+                                                remove: true)
+            case "stale":
+                return CompanionDecisionOutcome(message: message ?? "Changed, reload", remove: false)
+            case "forbidden":
+                return CompanionDecisionOutcome(message: message ?? "You can't answer this one", remove: false)
+            default:
+                return CompanionDecisionOutcome(message: message ?? "Couldn't save that decision.", remove: false)
+            }
+        case .shop:
+            guard (200..<300).contains(reply.status) else {
+                let message = (try? JSONSerialization.jsonObject(with: Data(reply.body.utf8)) as? [String: Any])?["message"] as? String
+                return CompanionDecisionOutcome(message: message ?? "Couldn't save that decision.", remove: false)
+            }
+            return CompanionDecisionOutcome(message: answer == "approve" ? "Approved" : "Declined", remove: true)
+        }
+    }
+}
+
+@MainActor
+final class CompanionApprovalsActions {
+    static let shared = CompanionApprovalsActions()
+
+    func submit(item: CompanionTodoItem, answer: String) async -> CompanionDecisionOutcome {
+        guard let request = CompanionDecisionRequests.decisionRequest(item: item, answer: answer),
+              let api = item.decision?.api else {
+            return CompanionDecisionOutcome(message: "This item can't be answered here.", remove: false)
+        }
+        let reply = await CompanionApprovalsMonitor.shared.postJSON(path: request.path, body: request.body)
+        return CompanionDecisionOutcomeParser.outcome(api: api, itemId: item.id, answer: answer, reply: reply)
     }
 }
 
@@ -286,6 +444,46 @@ final class CompanionApprovalsMonitor: NSObject, WKNavigationDelegate, Observabl
         if (cookie) headers['X-XSRF-TOKEN'] = decodeURIComponent(cookie.split('=').slice(1).join('='));
         try {
           const response = await fetch(path, { credentials: 'same-origin', headers });
+          return { status: response.status, contentType: response.headers.get('content-type') || '', body: await response.text(), url: response.url };
+        } catch (error) {
+          return { status: 0, contentType: '', body: String(error), url: '' };
+        }
+        """
+        let value: Any? = await withCheckedContinuation { continuation in
+            webView.callAsyncJavaScript(script, arguments: [:], in: nil, in: .page) { result in
+                switch result {
+                case .success(let value):
+                    continuation.resume(returning: value)
+                case .failure:
+                    continuation.resume(returning: nil)
+                }
+            }
+        }
+        guard let reply = value as? [String: Any] else { return nil }
+        return CompanionFetchReply(status: reply["status"] as? Int ?? 0,
+                                   contentType: reply["contentType"] as? String ?? "",
+                                   body: reply["body"] as? String ?? "",
+                                   url: reply["url"] as? String ?? "")
+    }
+
+    func postJSON(path: String, body: [String: Any]) async -> CompanionFetchReply? {
+        guard let webView, baseURL != nil else { return nil }
+        guard let pathData = try? JSONSerialization.data(withJSONObject: [path]),
+              let pathArray = String(data: pathData, encoding: .utf8),
+              let bodyData = try? JSONSerialization.data(withJSONObject: body),
+              let bodyJSON = String(data: bodyData, encoding: .utf8),
+              let bodyArrayData = try? JSONSerialization.data(withJSONObject: [bodyJSON]),
+              let bodyArray = String(data: bodyArrayData, encoding: .utf8) else { return nil }
+        let pathLiteral = String(pathArray.dropFirst().dropLast())
+        let bodyLiteral = String(bodyArray.dropFirst().dropLast())
+        let script = """
+        const path = \(pathLiteral);
+        const payload = \(bodyLiteral);
+        const cookie = document.cookie.split('; ').find((c) => c.startsWith('XSRF-TOKEN='));
+        const headers = { Accept: 'application/json', 'Content-Type': 'application/json' };
+        if (cookie) headers['X-XSRF-TOKEN'] = decodeURIComponent(cookie.split('=').slice(1).join('='));
+        try {
+          const response = await fetch(path, { method: 'POST', credentials: 'same-origin', headers, body: payload });
           return { status: response.status, contentType: response.headers.get('content-type') || '', body: await response.text(), url: response.url };
         } catch (error) {
           return { status: 0, contentType: '', body: String(error), url: '' };
