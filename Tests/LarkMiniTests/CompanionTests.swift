@@ -149,6 +149,52 @@ final class CompanionTests: XCTestCase {
         XCTAssertEqual(CompanionBridge.validate(method: "openSpace", arguments: ["x", "https://example.com"]), .unsupported)
     }
 
+
+    func testApprovalsTodoGroupingOrderingAndTruncation() throws {
+        let json = #"""
+        {
+          "counts": {"pending": 7, "mine": 5},
+          "order": ["b", "a", "c", "d", "e", "f", "g"],
+          "shops": [
+            {"resource": "north", "name": "North Studio", "services": [
+              {"label": "North agent", "items": [
+                {"id": "a", "question": "Approve reorder", "age_seconds": 120, "agent": {"label": "North agent"}},
+                {"id": "b", "question": "Book courier", "age_seconds": 30, "agent": {"label": "North agent"}},
+                {"id": "c", "question": "Check stock", "age_seconds": 3600},
+                {"id": "d", "question": "Reply to buyer", "age_seconds": 86400},
+                {"id": "e", "question": "Send samples", "age_seconds": 90000},
+                {"id": "f", "question": "Update price", "age_seconds": 0}
+              ]}
+            ]},
+            {"resource": "harbor", "name": "Harbor & Co", "services": [
+              {"label": "Harbor agent", "items": [
+                {"id": "g", "question": "Pause collection", "age_seconds": 7200}
+              ]}
+            ]}
+          ]
+        }
+        """#
+        let list = try JSONDecoder().decode(CompanionApprovalsList.self, from: Data(json.utf8))
+        let snapshot = CompanionTodos.make(from: list)
+        XCTAssertEqual(snapshot.total, 7)
+        XCTAssertEqual(snapshot.shops.map(\.name), ["North Studio", "Harbor & Co"])
+        XCTAssertEqual(snapshot.shops[0].pending, 6)
+        XCTAssertEqual(snapshot.shops[0].items.map(\.id), ["b", "a", "c", "d", "e"])
+        XCTAssertEqual(snapshot.shops[0].more, 1)
+        XCTAssertEqual(snapshot.shops[0].items.map(\.age), ["now", "2m", "1h", "1d", "1d"])
+        XCTAssertEqual(snapshot.shops[0].items.first?.clickPath, "/companion/app/north/approvals")
+        XCTAssertEqual(snapshot.shops[1].items.map(\.id), ["g"])
+        XCTAssertEqual(snapshot.shops[1].items.first?.clickPath, "/companion/app/harbor/approvals")
+    }
+
+    func testApprovalsTodoStates() {
+        let empty = CompanionTodoSnapshot(total: 0, shops: [])
+        XCTAssertTrue(CompanionTodosState.ready(empty).showsEmpty)
+        XCTAssertTrue(CompanionTodosState.failed.showsError)
+        XCTAssertTrue(CompanionTodosState.signedOut.showsSignedOut)
+        XCTAssertFalse(CompanionTodosState.loading.showsEmpty)
+    }
+
     func testApprovalsDiffClickPathAndSeenStore() {
         let first = CompanionApproval(id: "a", label: "North agent", question: "Approve the reorder",
                                       resource: "north", shopName: "North Studio")

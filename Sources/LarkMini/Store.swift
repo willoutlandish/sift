@@ -73,6 +73,7 @@ final class Store: ObservableObject {
     nonisolated static let controlMaxTail = 400
     private var controlServerId: String?
     /// Leaving Control drops back to the short tail, so a collapsed panel polls little.
+    @Published var ollieOpen = false
     @Published var controlOpen = false {
         didSet {
             if !controlOpen { controlTail = Self.controlPage }
@@ -604,6 +605,7 @@ final class Store: ObservableObject {
         showingSettings = false
         openChat = nil
         controlOpen = false
+        ollieOpen = false
     }
 
     func closeSearch() {
@@ -704,6 +706,7 @@ final class Store: ObservableObject {
     func open(_ chat: Chat) {
         showingSettings = false
         controlOpen = false
+        ollieOpen = false
         if searchOpen { closeSearch() }
         openChat = chat
         if !chat.isP2P { Task { await resolveMembers(chat) } }
@@ -718,9 +721,20 @@ final class Store: ObservableObject {
     func showInbox() {
         showingSettings = false
         controlOpen = false
+        ollieOpen = false
         openChat = nil
         showAllChats = false
         if searchOpen { closeSearch() }
+    }
+
+    func showOllie() {
+        if searchOpen { closeSearch() }
+        ollieOpen = true
+        controlOpen = false
+        showingSettings = false
+        openChat = nil
+        startCompanionMonitor()
+        CompanionApprovalsMonitor.shared.refresh()
     }
 
     func closeConversation() {
@@ -968,6 +982,7 @@ final class Store: ObservableObject {
     func openControl() {
         if searchOpen { closeSearch() }
         controlOpen = true
+        ollieOpen = false
         showingSettings = false
         openChat = nil
         markControlRead()
@@ -993,6 +1008,26 @@ final class Store: ObservableObject {
         errorText = nil
         CompanionApprovalsMonitor.shared.start(baseURL: base)
         CompanionWindowController.shared.open(baseURL: base, path: path)
+    }
+
+    func openCompanionSignIn() {
+        let state = stateFile.reload()
+        companionURL = state.companionURL
+        guard let raw = state.companionURL,
+              let base = CompanionConfig.validatedURL(raw) else {
+            errorText = "Set a Companion URL with: ollie companion set --url http://host:port"
+            return
+        }
+        errorText = nil
+        CompanionApprovalsMonitor.shared.start(baseURL: base)
+        CompanionWindowController.shared.open(baseURL: base, path: "/outlandish/sign-in", allowAnyPath: true)
+    }
+
+    private func startCompanionMonitor() {
+        let state = stateFile.reload()
+        if let raw = state.companionURL, let base = CompanionConfig.validatedURL(raw) {
+            CompanionApprovalsMonitor.shared.start(baseURL: base)
+        }
     }
 
     var canLoadEarlierControl: Bool { controlHasOlder && controlTail < Self.controlMaxTail }

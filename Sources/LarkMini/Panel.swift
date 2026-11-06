@@ -181,7 +181,7 @@ final class PanelController {
 
     private func openFromHead() {
         expand()
-        if store.controlAttention != nil || store.needsYouUnseen { store.openControl() }
+        store.showOllie()
     }
 
     func show() {

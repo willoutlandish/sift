@@ -7,10 +7,10 @@ struct RailView: View {
 
     var body: some View {
         VStack(spacing: 8) {
-            Button { store.openCompanion() } label: {
+            Button { store.showOllie() } label: {
                 VStack(spacing: 4) {
                     FaceIcon(size: 28)
-                    Text("Companion").font(.system(size: 11, weight: .medium))
+                    Text("Ollie").font(.system(size: 11, weight: .medium))
                         .lineLimit(1).minimumScaleFactor(0.75)
                 }
                 .frame(width: 48, height: 58)
@@ -19,8 +19,8 @@ struct RailView: View {
                     .strokeBorder(Color(red: 0.82, green: 0.94, blue: 0.08).opacity(0.55)))
             }
             .buttonStyle(.plain)
-            .help("Open Companion")
-            .accessibilityLabel("Open Companion")
+            .help("Open Ollie")
+            .accessibilityLabel("Open Ollie")
             .padding(.top, 10)
 
             Button { store.showInbox() } label: {

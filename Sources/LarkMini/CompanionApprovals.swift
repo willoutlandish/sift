@@ -27,12 +27,54 @@ struct CompanionApprovalsList: Decodable {
         let source: String?
         let kind: String?
         let question: String?
+        let age_seconds: Int?
         let agent: Agent?
         let shop: ShopRef?
     }
 
     let shops: [Shop]
+    let order: [String]?
     let counts: Counts?
+}
+
+struct CompanionTodoItem: Identifiable, Equatable {
+    let id: String
+    let label: String
+    let title: String
+    let age: String
+    let clickPath: String
+}
+
+struct CompanionTodoShop: Identifiable, Equatable {
+    let resource: String
+    let name: String
+    let pending: Int
+    let items: [CompanionTodoItem]
+    let more: Int
+
+    var id: String { resource.isEmpty ? name : resource }
+}
+
+struct CompanionTodoSnapshot: Equatable {
+    let total: Int
+    let shops: [CompanionTodoShop]
+
+    var isEmpty: Bool { total == 0 }
+}
+
+enum CompanionTodosState: Equatable {
+    case loading
+    case ready(CompanionTodoSnapshot)
+    case signedOut
+    case failed
+
+    var showsEmpty: Bool {
+        if case .ready(let snapshot) = self { return snapshot.total == 0 }
+        return false
+    }
+
+    var showsError: Bool { self == .failed }
+    var showsSignedOut: Bool { self == .signedOut }
 }
 
 struct CompanionApproval: Equatable {
@@ -80,6 +122,59 @@ enum CompanionApprovals {
     }
 }
 
+enum CompanionTodos {
+    static let pageSize = 5
+
+    static func make(from list: CompanionApprovalsList) -> CompanionTodoSnapshot {
+        let ranks = Dictionary(uniqueKeysWithValues: (list.order ?? []).enumerated().map { ($1, $0) })
+        var shops: [CompanionTodoShop] = []
+        var collected = 0
+
+        for shop in list.shops {
+            var items: [(index: Int, item: CompanionTodoItem)] = []
+            for service in shop.services {
+                for item in service.items {
+                    guard !item.id.isEmpty else { continue }
+                    let resource = nonEmpty(item.shop?.resource) ?? nonEmpty(shop.resource)
+                    let label = nonEmpty(item.agent?.label) ?? nonEmpty(service.label) ?? "An agent"
+                    let title = nonEmpty(item.question) ?? nonEmpty(item.kind) ?? nonEmpty(item.source) ?? "Approval"
+                    let todo = CompanionTodoItem(id: item.id, label: label, title: title,
+                                                 age: ageText(item.age_seconds),
+                                                 clickPath: CompanionApprovals.clickPath(resource: resource))
+                    items.append((items.count, todo))
+                }
+            }
+            guard !items.isEmpty else { continue }
+            collected += items.count
+            let ordered = items.sorted { left, right in
+                let leftRank = ranks[left.item.id] ?? Int.max
+                let rightRank = ranks[right.item.id] ?? Int.max
+                if leftRank != rightRank { return leftRank < rightRank }
+                return left.index < right.index
+            }.map(\.item)
+            shops.append(CompanionTodoShop(resource: shop.resource, name: shop.name,
+                                           pending: ordered.count,
+                                           items: Array(ordered.prefix(pageSize)),
+                                           more: max(0, ordered.count - pageSize)))
+        }
+
+        return CompanionTodoSnapshot(total: list.counts?.pending ?? collected, shops: shops)
+    }
+
+    static func ageText(_ seconds: Int?) -> String {
+        guard let seconds, seconds >= 0 else { return "" }
+        if seconds < 60 { return "now" }
+        if seconds < 3600 { return "\(seconds / 60)m" }
+        if seconds < 86_400 { return "\(seconds / 3600)h" }
+        return "\(seconds / 86_400)d"
+    }
+
+    private static func nonEmpty(_ value: String?) -> String? {
+        let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return trimmed.isEmpty ? nil : trimmed
+    }
+}
+
 struct CompanionApprovalsSeenStore {
     let url: URL
 
@@ -101,19 +196,22 @@ struct CompanionApprovalsSeenStore {
 }
 
 @MainActor
-final class CompanionApprovalsMonitor: NSObject, WKNavigationDelegate {
+final class CompanionApprovalsMonitor: NSObject, WKNavigationDelegate, ObservableObject {
     static let shared = CompanionApprovalsMonitor()
 
+    @Published private(set) var state: CompanionTodosState = .loading
     private var webView: WKWebView?
     private var baseURL: URL?
     private var pollTask: Task<Void, Never>?
     private var failures = 0
+    private var polling = false
     private let seenStore = CompanionApprovalsSeenStore()
 
     func start(baseURL: URL) {
         if self.baseURL == baseURL, webView != nil { return }
         stop()
         self.baseURL = baseURL
+        state = .loading
         let configuration = WKWebViewConfiguration()
         configuration.websiteDataStore = .default()
         let webView = WKWebView(frame: .zero, configuration: configuration)
@@ -131,7 +229,19 @@ final class CompanionApprovalsMonitor: NSObject, WKNavigationDelegate {
         webView = nil
         baseURL = nil
         failures = 0
+        polling = false
+        state = .loading
         OllieBadge.setApprovals(0)
+    }
+
+    func refresh() {
+        pollTask?.cancel()
+        pollTask = nil
+        guard baseURL != nil else {
+            state = .signedOut
+            return
+        }
+        Task { await poll() }
     }
 
     func webView(_ webView: WKWebView, didCommit navigation: WKNavigation!) {
@@ -158,7 +268,9 @@ final class CompanionApprovalsMonitor: NSObject, WKNavigationDelegate {
     }
 
     private func poll() async {
-        guard let webView, baseURL != nil else { return }
+        guard !polling, let webView, baseURL != nil else { return }
+        polling = true
+        defer { polling = false }
         let script = """
         const cookie = document.cookie.split('; ').find((c) => c.startsWith('XSRF-TOKEN='));
         const headers = { Accept: 'application/json' };
@@ -180,21 +292,38 @@ final class CompanionApprovalsMonitor: NSObject, WKNavigationDelegate {
                 }
             }
         }
-        guard let reply = value as? [String: Any],
-              let status = reply["status"] as? Int, status == 200,
+        guard let reply = value as? [String: Any] else {
+            state = .failed
+            failures += 1
+            schedule(after: backoff)
+            return
+        }
+        let status = reply["status"] as? Int ?? 0
+        let finalURL = (reply["url"] as? String).flatMap(URL.init)
+        if status == 401 || status == 403 || status == 419
+            || (finalURL.map(CompanionSignInProbe.isSignIn) ?? false) {
+            state = .signedOut
+            OllieBadge.setApprovals(0)
+            failures += 1
+            schedule(after: backoff)
+            return
+        }
+        guard status == 200,
               let contentType = reply["contentType"] as? String, contentType.contains("application/json"),
               let body = reply["body"] as? String, let data = body.data(using: .utf8),
               let list = try? JSONDecoder().decode(CompanionApprovalsList.self, from: data) else {
+            state = .failed
             failures += 1
             schedule(after: backoff)
             return
         }
 
         failures = 0
-        let approvals = CompanionApprovals.flatten(list)
-        let pending = list.counts?.pending ?? approvals.count
-        OllieBadge.setApprovals(pending)
+        let snapshot = CompanionTodos.make(from: list)
+        state = .ready(snapshot)
+        OllieBadge.setApprovals(snapshot.total)
 
+        let approvals = CompanionApprovals.flatten(list)
         if let seen = seenStore.load() {
             for approval in CompanionApprovals.diff(current: approvals, seen: seen) {
                 await notify(approval)
@@ -202,9 +331,9 @@ final class CompanionApprovalsMonitor: NSObject, WKNavigationDelegate {
             seenStore.save(seen.union(approvals.map(\.id)))
         } else {
             seenStore.save(Set(approvals.map(\.id)))
-            if pending > 0 {
+            if snapshot.total > 0 {
                 await Notifications.shared.postApproval(
-                    title: "\(pending) things waiting for your approval",
+                    title: "\(snapshot.total) things waiting for your approval",
                     body: "Open Ollie to review them.",
                     id: "summary-\(Int(Date().timeIntervalSince1970))",
                     path: CompanionApprovals.clickPath(resource: nil))
