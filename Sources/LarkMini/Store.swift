@@ -991,6 +991,7 @@ final class Store: ObservableObject {
             return
         }
         errorText = nil
+        CompanionApprovalsMonitor.shared.start(baseURL: base)
         CompanionWindowController.shared.open(baseURL: base, path: path)
     }
 

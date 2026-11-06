@@ -167,13 +167,40 @@ extension View {
     }
 }
 
+@MainActor
+enum OllieBadge {
+    private static var approvals = 0
+    private static var unread = 0
+    static var onSet: ((Int) -> Void)?
+
+    static func setApprovals(_ count: Int) {
+        approvals = clamp(count)
+        apply()
+    }
+
+    static func setUnread(_ count: Int) {
+        unread = clamp(count)
+        apply()
+    }
+
+    private static func clamp(_ count: Int) -> Int {
+        max(0, min(99999, count))
+    }
+
+    private static func apply() {
+        let count = approvals > 0 ? approvals : unread
+        NSApp.dockTile.badgeLabel = count > 0 ? "\(count)" : nil
+        onSet?(count)
+    }
+}
+
 enum BrandIcon {
     static func statusBar() -> NSImage? {
         let size = NSSize(width: 18, height: 18)
         let image = NSImage(size: size)
         image.lockFocus()
-        if let duck = OllieArt.duck() {
-            duck.draw(in: NSRect(origin: .zero, size: size), from: .zero,
+        if let head = OllieArt.head() {
+            head.draw(in: NSRect(origin: .zero, size: size), from: .zero,
                       operation: .sourceOver, fraction: 1)
         } else {
             NSColor(calibratedRed: 0.85, green: 0.95, blue: 0.05, alpha: 1).setFill()
@@ -185,17 +212,6 @@ enum BrandIcon {
     }
 }
 
-struct CompanionMark: View {
-    var size: CGFloat = 28
-
-    var body: some View {
-        Image(systemName: "building.2")
-            .font(.system(size: size * 0.52, weight: .medium))
-            .foregroundStyle(Color(red: 0.82, green: 0.94, blue: 0.08))
-            .frame(width: size, height: size)
-            .accessibilityHidden(true)
-    }
-}
 
 /// An agent mark, shared by the rail and conversation heading.
 struct ControlMark: View {

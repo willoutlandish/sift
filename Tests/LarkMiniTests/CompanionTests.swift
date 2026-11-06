@@ -110,6 +110,63 @@ final class CompanionTests: XCTestCase {
         XCTAssertTrue(CompanionSignInProbe.isSignIn(nil))
     }
 
+
+    func testNavigationAllowsWorkOSAndAuthKitButDeniesAuthPopups() {
+        let base = URL(string: "http://100.113.131.96:8090")!
+        let policy = CompanionNavigationPolicy(baseURL: base)
+
+        XCTAssertEqual(policy.decision(for: URL(string: "https://api.workos.com/user_management/authorize")!), .allow)
+        XCTAssertEqual(policy.decision(for: URL(string: "https://tenant.authkit.app/login")!), .allow)
+        XCTAssertEqual(policy.decision(for: URL(string: "https://a.b.authkit.app/login")!), .external)
+        XCTAssertEqual(policy.decision(for: URL(string: "https://accounts.larksuite.com/accounts/page/login")!), .allow)
+
+        XCTAssertEqual(policy.windowOpenDecision(for: URL(string: "https://api.workos.com/user_management/authorize")!,
+                                                  topURL: base), .deny)
+        XCTAssertEqual(policy.windowOpenDecision(for: URL(string: "https://tenant.authkit.app/login")!,
+                                                  topURL: base), .deny)
+        XCTAssertEqual(policy.windowOpenDecision(for: URL(string: "http://100.113.131.96:8090/companion/app/abc")!,
+                                                  topURL: base), .loadInCompanion)
+        XCTAssertEqual(policy.windowOpenDecision(for: URL(string: "https://example.com/report")!,
+                                                  topURL: base), .openExternally)
+        XCTAssertEqual(policy.windowOpenDecision(for: URL(string: "http://100.113.131.96:8090/companion/app")!,
+                                                  topURL: URL(string: "https://api.workos.com/login")!), .deny)
+    }
+
+    func testBridgeValidatesArgumentsAndOrigins() {
+        let base = URL(string: "http://100.113.131.96:8090")!
+        XCTAssertTrue(CompanionBridge.allowedPage(URL(string: "http://100.113.131.96:8090/companion/app/abc")!, base: base))
+        XCTAssertFalse(CompanionBridge.allowedPage(URL(string: "https://example.com/companion/app")!, base: base))
+        XCTAssertFalse(CompanionBridge.allowedPage(URL(string: "http://100.113.131.96:8090/e2e/auth")!, base: base))
+
+        XCTAssertEqual(CompanionBridge.validate(method: "setBadge", arguments: [3]), .setBadge(3))
+        XCTAssertEqual(CompanionBridge.validate(method: "setBadge", arguments: [-1]), .invalid)
+        XCTAssertEqual(CompanionBridge.validate(method: "notify", arguments: ["Agent", "Needs you"]),
+                       .notify("Agent", "Needs you"))
+        XCTAssertEqual(CompanionBridge.validate(method: "notify", arguments: ["", "Needs you"]), .invalid)
+        XCTAssertEqual(CompanionBridge.validate(method: "openExternal", arguments: ["https://example.com"]),
+                       .openExternal(URL(string: "https://example.com")!))
+        XCTAssertEqual(CompanionBridge.validate(method: "openExternal", arguments: ["http://example.com"]), .invalid)
+        XCTAssertEqual(CompanionBridge.validate(method: "openSpace", arguments: ["x", "https://example.com"]), .unsupported)
+    }
+
+    func testApprovalsDiffClickPathAndSeenStore() {
+        let first = CompanionApproval(id: "a", label: "North agent", question: "Approve the reorder",
+                                      resource: "north", shopName: "North Studio")
+        let second = CompanionApproval(id: "b", label: "Harbor agent", question: "Pause collection",
+                                       resource: nil, shopName: "Harbor & Co")
+        XCTAssertEqual(CompanionApprovals.diff(current: [first, second], seen: ["a"]), [second])
+        XCTAssertEqual(first.clickPath, "/companion/app/north/approvals")
+        XCTAssertEqual(second.clickPath, "/companion/app/approvals")
+
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ollie-approvals-\(UUID().uuidString).json")
+        let store = CompanionApprovalsSeenStore(url: url)
+        XCTAssertNil(store.load())
+        store.save(["a", "b"])
+        XCTAssertEqual(store.load(), ["a", "b"])
+        try? FileManager.default.removeItem(at: url)
+    }
+
     func testNavigationAllowsTheOriginAndSignInHosts() {
         let base = URL(string: "http://100.113.131.96:8090")!
         let policy = CompanionNavigationPolicy(baseURL: base, signInHosts: ["outlandish.com"])

@@ -51,8 +51,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         Notifications.shared.onOpen = { [weak self] destination in
             guard let self else { return }
             self.panelController.expand()
-            if destination == "control" { self.store.openControl() }
-            else if let chat = self.store.chats.first(where: { $0.id == destination }) { self.store.open(chat) }
+            if destination == "control" {
+                self.store.openControl()
+            } else if destination.hasPrefix("companion:") {
+                self.store.openCompanion(path: String(destination.dropFirst("companion:".count)))
+            } else if let chat = self.store.chats.first(where: { $0.id == destination }) {
+                self.store.open(chat)
+            }
         }
         Task { await Notifications.shared.refresh(request: Notifications.shared.enabled) }
         companionStatusObserver = DistributedNotificationCenter.default().addObserver(
@@ -68,11 +73,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         installEditMenu()
         installKeyMonitor()
         setUpStatusItem()
+        OllieBadge.onSet = { [weak self] count in
+            self?.statusItem?.button?.title = count > 0 ? " \(count)" : ""
+        }
         let signedIn: Bool
         if case .signedIn = store.auth { signedIn = true } else { signedIn = false }
         store.isExpanded = demoMode ? !CommandLine.arguments.contains("--demo-needs-you") : !signedIn
         panelController.show()
         store.start()
+        if let raw = store.companionURL, let base = CompanionConfig.validatedURL(raw) {
+            CompanionApprovalsMonitor.shared.start(baseURL: base)
+        }
         if !demoMode { installOutsideClickMonitor() }
         let hotKey = GlobalHotKey { [weak self] in self?.panelController.toggle() }
         hotKey.register()

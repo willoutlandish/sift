@@ -19,6 +19,7 @@ final class Notifications: NSObject, ObservableObject, UNUserNotificationCenterD
     @Published private(set) var testResult: String?
     var onOpen: ((String) -> Void)?
     private var submitted = UserDefaults.standard.stringArray(forKey: "notificationEvents") ?? []
+    private var approvalPermissionRequested = UserDefaults.standard.bool(forKey: "approvalPermissionRequested")
 
     private var center: UNUserNotificationCenter? {
         guard Bundle.main.bundleIdentifier != nil else { return nil }
@@ -85,6 +86,39 @@ final class Notifications: NSObject, ObservableObject, UNUserNotificationCenterD
         }
     }
 
+    func requestApprovalAuthorization() async {
+        guard let center, !approvalPermissionRequested else { return }
+        approvalPermissionRequested = true
+        UserDefaults.standard.set(true, forKey: "approvalPermissionRequested")
+        center.delegate = self
+        _ = try? await center.requestAuthorization(options: [.alert, .sound])
+    }
+
+    func postBridge(title: String, body: String) async {
+        await postDirect(title: title, body: body, id: "bridge-\(UUID().uuidString)", destination: "")
+    }
+
+    func postApproval(title: String, body: String, id: String, path: String) async {
+        await postDirect(title: title, body: body, id: "approval-\(id)", destination: "companion:\(path)")
+    }
+
+    private func postDirect(title: String, body: String, id: String, destination: String) async {
+        guard let center else { return }
+        let settings = await center.notificationSettings()
+        switch settings.authorizationStatus {
+        case .authorized, .provisional, .ephemeral:
+            break
+        default:
+            return
+        }
+        let content = UNMutableNotificationContent()
+        content.title = title
+        content.body = body
+        content.sound = sound ? .default : nil
+        content.userInfo = ["destination": destination, "direct": true]
+        try? await center.add(UNNotificationRequest(identifier: id, content: content, trigger: nil))
+    }
+
     func test() async {
         let id = "test-\(UUID().uuidString)"
         await post(title: "Ollie", body: "A quiet nudge. Click to open Ollie.", id: id, destination: "")
@@ -101,8 +135,9 @@ final class Notifications: NSObject, ObservableObject, UNUserNotificationCenterD
         willPresent notification: UNNotification,
         withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void) {
         Task { @MainActor in
-            completionHandler(enabled && !PanelBridge.shared.isFocused
-                              ? (sound ? [.banner, .sound] : [.banner]) : [])
+            let direct = notification.request.content.userInfo["direct"] as? Bool == true
+            let allowed = direct ? !PanelBridge.shared.isFocused : (enabled && !PanelBridge.shared.isFocused)
+            completionHandler(allowed ? (sound ? [.banner, .sound] : [.banner]) : [])
         }
     }
 
