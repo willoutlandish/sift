@@ -166,16 +166,20 @@ final class CompanionWindowController: NSWindowController, WKNavigationDelegate,
         fatalError("init(coder:) has not been implemented")
     }
 
-    func open(baseURL: URL, path: String?, allowAnyPath: Bool = false) {
+    func open(baseURL: URL, path: String?, allowAnyPath: Bool = false, activate: Bool = true) {
         let target = (allowAnyPath ? CompanionConfig.cliTargetURL(base: baseURL, path: path) : nil)
             ?? CompanionConfig.targetURL(base: baseURL, path: path)
             ?? baseURL
         self.baseURL = baseURL
         policy = CompanionNavigationPolicy(baseURL: baseURL)
         installCompanionBridge(appOrigin: baseURL)
-        showWindow(nil)
-        window?.makeKeyAndOrderFront(nil)
-        NSApp.activate(ignoringOtherApps: true)
+        if activate {
+            showWindow(nil)
+            window?.makeKeyAndOrderFront(nil)
+            NSApp.activate(ignoringOtherApps: true)
+        } else {
+            window?.orderFront(nil)
+        }
         webView.load(URLRequest(url: target))
     }
 

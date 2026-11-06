@@ -7,6 +7,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let panelController: PanelController
     private let bubbleController: EdgeBubbleController
     private let demoMode: Bool
+    private let backgroundCheck: Bool
     private var statusItem: NSStatusItem?
     private var outsideMonitor: Any?
     private var hotKey: GlobalHotKey?
@@ -36,6 +37,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     init(demo: Bool, openDemoChat: Bool = false, openDemoControl: Bool = false, openDemoSearch: Bool = false, demoNeedsYou: Bool = false) {
         demoMode = demo
+        backgroundCheck = CommandLine.arguments.contains("--background-check")
         store = demo ? Store.demo(needsYou: demoNeedsYou) : Store()
         if demo && openDemoChat, let chat = store.chats.first { store.open(chat) }
         if demo && openDemoControl { store.controlOpen = true }
@@ -85,16 +87,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let signedIn: Bool
         if case .signedIn = store.auth { signedIn = true } else { signedIn = false }
         store.isExpanded = demoMode ? !CommandLine.arguments.contains("--demo-needs-you") : !signedIn
-        panelController.show()
+        if !backgroundCheck {
+            panelController.show()
+        }
         store.start()
         if let raw = store.companionURL, let base = CompanionConfig.validatedURL(raw) {
             CompanionApprovalsMonitor.shared.start(baseURL: base)
         }
-        if !demoMode { installOutsideClickMonitor() }
-        let hotKey = GlobalHotKey { [weak self] in self?.panelController.toggle() }
-        hotKey.register()
-        self.hotKey = hotKey
-        if store.isExpanded {
+        if !demoMode && !backgroundCheck { installOutsideClickMonitor() }
+        if !backgroundCheck {
+            let hotKey = GlobalHotKey { [weak self] in self?.panelController.toggle() }
+            hotKey.register()
+            self.hotKey = hotKey
+        }
+        if store.isExpanded && !backgroundCheck {
             panelController.expand()
         }
     }
@@ -178,8 +184,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
               let path = note.userInfo?["path"] as? String,
               let target = CompanionConfig.cliTargetURL(base: requested, path: path) else { return }
         let instance = companionStatusInstance
-        panelController.expand()
-        CompanionWindowController.shared.open(baseURL: requested, path: path, allowAnyPath: true)
+        if !backgroundCheck {
+            panelController.expand()
+        }
+        CompanionWindowController.shared.open(baseURL: requested, path: path, allowAnyPath: true,
+                                              activate: !backgroundCheck)
         let file = AppPaths.supportDirectory
             .appendingPathComponent("companion-open-\(id)-\(instance).json")
         let payload: [String: Any] = ["opened": true, "url": target.absoluteString]
