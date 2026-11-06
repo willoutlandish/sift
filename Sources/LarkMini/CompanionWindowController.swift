@@ -2,7 +2,7 @@ import AppKit
 import WebKit
 
 @MainActor
-final class CompanionWindowController: NSWindowController, WKNavigationDelegate, WKUIDelegate, WKDownloadDelegate, WKScriptMessageHandlerWithReply {
+final class CompanionWindowController: NSWindowController, WKNavigationDelegate, WKUIDelegate, WKDownloadDelegate, WKScriptMessageHandler, WKScriptMessageHandlerWithReply {
     static let shared = CompanionWindowController()
 
     private let webView: WKWebView
@@ -11,6 +11,7 @@ final class CompanionWindowController: NSWindowController, WKNavigationDelegate,
     private var baseURL: URL?
     private var windowObservers: [NSObjectProtocol] = []
     private var lastTitlebarDoubleClick = Date.distantPast
+    private var passkeyHintShown = false
 
     private init() {
         let configuration = WKWebViewConfiguration()
@@ -45,6 +46,7 @@ final class CompanionWindowController: NSWindowController, WKNavigationDelegate,
         webView.navigationDelegate = self
         webView.uiDelegate = self
         contentController.addScriptMessageHandler(self, contentWorld: .page, name: "ollie")
+        contentController.addScriptMessageHandler(self, contentWorld: .page, name: "ollieAuthHint")
         positionTrafficLights()
         windowObservers = [
             NotificationCenter.default.addObserver(forName: NSWindow.didResizeNotification,
@@ -65,6 +67,40 @@ final class CompanionWindowController: NSWindowController, WKNavigationDelegate,
             }
         ]
     }
+
+    private static let passkeyHintSource = """
+    (function () {
+      if (window.__olliePasskeyHint) return;
+      window.__olliePasskeyHint = true;
+      const send = function () {
+        try { window.webkit.messageHandlers.ollieAuthHint.postMessage("hint"); } catch (error) {}
+      };
+      const looksLikePasskey = function (value) {
+        return /passkey|security key/i.test((value || "").toLowerCase());
+      };
+      document.addEventListener("click", function (event) {
+        const target = event.target && event.target.closest
+          ? event.target.closest('button, a, [role="button"], input[type="button"], input[type="submit"]')
+          : null;
+        if (!target) return;
+        if (looksLikePasskey(target.innerText) || looksLikePasskey(target.value) ||
+            looksLikePasskey(target.getAttribute("aria-label"))) send();
+      }, true);
+      const wrap = function (name) {
+        const credentials = navigator.credentials;
+        if (!credentials || typeof credentials[name] !== "function") return;
+        const original = credentials[name].bind(credentials);
+        credentials[name] = function () {
+          return original.apply(null, arguments).catch(function (error) {
+            if (error && /NotAllowed|Security|NotSupported/i.test(error.name || "")) send();
+            throw error;
+          });
+        };
+      };
+      wrap("create");
+      wrap("get");
+    })();
+    """
 
     private func positionTrafficLights() {
         guard let window,
@@ -244,10 +280,36 @@ final class CompanionWindowController: NSWindowController, WKNavigationDelegate,
                                                          forMainFrameOnly: true))
         userContentController.addUserScript(WKUserScript(source: dragSource, injectionTime: .atDocumentStart,
                                                          forMainFrameOnly: true))
+        userContentController.addUserScript(WKUserScript(source: Self.passkeyHintSource,
+                                                         injectionTime: .atDocumentStart,
+                                                         forMainFrameOnly: false))
     }
 
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
         updateLightsInset()
+    }
+
+    func userContentController(_ userContentController: WKUserContentController,
+                               didReceive message: WKScriptMessage) {
+        guard message.name == "ollieAuthHint", message.frameInfo.isMainFrame else { return }
+        showPasskeyHint()
+    }
+
+    private func showPasskeyHint() {
+        guard !passkeyHintShown else { return }
+        passkeyHintShown = true
+        let alert = NSAlert()
+        alert.messageText = "Passkeys don't work inside Ollie yet: choose email code or Google."
+        alert.addButton(withTitle: "OK")
+        if let window {
+            alert.beginSheetModal(for: window, completionHandler: nil)
+        } else {
+            alert.runModal()
+        }
+    }
+
+    func webView(_ webView: WKWebView, didCommit navigation: WKNavigation!) {
+        passkeyHintShown = false
     }
 
     func userContentController(_ userContentController: WKUserContentController,

@@ -123,6 +123,7 @@ struct RailView: View {
                 Button("Unmute") { store.unmute(chat) }
             } else {
                 Button("Mute for 1 hour") { store.mute(chat) }
+                Button("Mute until I unmute") { store.muteForever(chat) }
             }
         }
     }

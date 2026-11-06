@@ -104,6 +104,13 @@ final class Store: ObservableObject {
         }
     }
 
+    var showsLarkSurface: Bool {
+        switch pane {
+        case .lark, .chat: return true
+        default: return false
+        }
+    }
+
     /// Leaving Control drops back to the short tail, so a collapsed panel polls little.
     var controlOpen: Bool {
         get { pane == .control }
@@ -496,8 +503,11 @@ final class Store: ObservableObject {
                            !self.isVisible(id: result.0),
                            self.lastSeen[result.0] != preview.messageId,
                            let chat = self.chats.first(where: { $0.id == result.0 }) {
-                            if self.pinned.contains(result.0) { self.pushToast(chat: chat, text: preview.text) }
-                            else { self.larkArrival(chat: chat, text: preview.text) }
+                            if self.pinned.contains(result.0) {
+                                self.pushToast(chat: chat, text: preview.text)
+                            } else if self.settings.showLarkPopups {
+                                self.larkArrival(chat: chat, text: preview.text)
+                            }
                         }
                     }
                 }
@@ -589,6 +599,12 @@ final class Store: ObservableObject {
         stateFile.update { $0.muted = copy }
     }
 
+    func muteForever(_ chat: Chat) {
+        muted[chat.id] = Date.distantFuture
+        let copy = muted
+        stateFile.update { $0.muted = copy }
+    }
+
     func unmute(_ chat: Chat) {
         muted.removeValue(forKey: chat.id)
         let copy = muted
@@ -667,9 +683,11 @@ final class Store: ObservableObject {
     }
 
     func pushToast(chat: Chat, text: String) {
+        guard settings.showLarkPopups, !isMuted(chat) else { return }
         let event = "chat-\(chat.id)-\(previews[chat.id]?.messageId ?? "")"
         Task { await Notifications.shared.post(title: chat.displayName, body: text, id: event, destination: chat.id) }
         guard isExpanded else { larkArrival(chat: chat, text: text); return }
+        guard showsLarkSurface else { return }
         toasts.removeAll { $0.chat.id == chat.id }
         let toast = ChatToast(id: UUID(), chat: chat, text: text)
         toasts.append(toast)

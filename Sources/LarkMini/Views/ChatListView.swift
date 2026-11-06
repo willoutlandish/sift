@@ -197,7 +197,10 @@ struct ChatRow: View {
                 .disabled(!store.canPin(chat))
             if store.isUnread(chat) { Button("Mark read") { store.markRead(chat) } }
             if store.isMuted(chat) { Button("Unmute") { store.unmute(chat) } }
-            else { Button("Mute for 1 hour") { store.mute(chat) } }
+            else {
+                Button("Mute for 1 hour") { store.mute(chat) }
+                Button("Mute until I unmute") { store.muteForever(chat) }
+            }
             if let link = chat.link { Button("Open in Lark") { NSWorkspace.shared.open(link) } }
         }
     }

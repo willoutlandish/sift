@@ -259,6 +259,7 @@ final class PanelController {
             rect = PanelGeometry.rightEdge(size: NSSize(width: 72, height: 72), in: visible, margin: 10)
         }
         panel.hasShadow = store.isExpanded
+        panel.level = store.isExpanded ? .normal : .floating
         panel.setFrame(rect, display: true)
         resizeContent()
     }

@@ -145,6 +145,7 @@ final class EdgeBubbleController {
     private let store: Store
     private let panel: NSPanel
     private var watch: AnyCancellable?
+    private var keyWatch: [NSObjectProtocol] = []
     private static let size = NSSize(width: 300, height: 130)
 
     init(store: Store) {
@@ -154,7 +155,7 @@ final class EdgeBubbleController {
         panel.isOpaque = false
         panel.backgroundColor = .clear
         panel.hasShadow = false
-        panel.level = .floating
+        panel.level = .normal
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .ignoresCycle]
         panel.hidesOnDeactivate = false
         panel.animationBehavior = .none
@@ -164,8 +165,23 @@ final class EdgeBubbleController {
         watch = store.$bubble.combineLatest(store.$isExpanded)
             .receive(on: RunLoop.main)
             .sink { [weak self] bubble, expanded in
-                MainActor.assumeIsolated { self?.update(visible: bubble != nil && !expanded) }
+                MainActor.assumeIsolated { self?.refresh(expanded: expanded) }
             }
+        for name in [NSWindow.didBecomeKeyNotification, NSWindow.didResignKeyNotification] {
+            let token = NotificationCenter.default.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
+                MainActor.assumeIsolated { self?.refresh(expanded: self?.store.isExpanded ?? true) }
+            }
+            keyWatch.append(token)
+        }
+    }
+
+    private func refresh(expanded: Bool) {
+        let visible = store.bubble != nil
+            && !expanded
+            && store.settings.showLarkPopups
+            && !PanelBridge.shared.isFocused
+            && CompanionWindowController.shared.window?.isKeyWindow != true
+        update(visible: visible)
     }
 
     private func update(visible: Bool) {

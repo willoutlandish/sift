@@ -22,6 +22,7 @@ struct SettingsView: View {
                     controlSection
                     Divider().overlay(SiftStyle.line)
                     notificationSection
+                    larkPopupsSection
                     appearanceSection
                     behaviourSection
                     DisclosureGroup("Lark app credentials") { credentialsSection.padding(.top, 12) }
@@ -222,6 +223,19 @@ struct SettingsView: View {
                 }.buttonStyle(.plain).font(.system(size: 12)).foregroundStyle(accent)
                     .accessibilityLabel("Send test notification")
             }
+        }
+    }
+
+    private var larkPopupsSection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            sectionTitle("Lark message pop-ups")
+            Toggle("Show Lark message pop-ups", isOn: Binding(
+                get: { store.settings.showLarkPopups },
+                set: { value in store.updateSettings { $0.showLarkPopups = value } }
+            ))
+            .font(.system(size: 12)).toggleStyle(.switch).controlSize(.small)
+            Text("Off by default. Unread chats still show on the Lark badge and the duck.")
+                .font(.system(size: 11)).foregroundStyle(SiftStyle.secondary)
         }
     }
 

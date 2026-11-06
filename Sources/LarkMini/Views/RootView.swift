@@ -16,7 +16,7 @@ struct RootView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .overlay(alignment: .bottomTrailing) {
-            if store.isExpanded, !store.searchOpen, !store.toasts.isEmpty {
+            if store.isExpanded, store.settings.showLarkPopups, store.showsLarkSurface, !store.searchOpen, !store.toasts.isEmpty {
                 ToastStack()
             }
         }

@@ -111,18 +111,26 @@ final class CompanionTests: XCTestCase {
     }
 
 
-    func testNavigationAllowsWorkOSAndAuthKitButDeniesAuthPopups() {
+    func testNavigationKeepsOLIDInTheWindowAndDeniesLarkPopups() {
         let base = URL(string: "http://100.113.131.96:8090")!
         let policy = CompanionNavigationPolicy(baseURL: base)
 
         XCTAssertEqual(policy.decision(for: URL(string: "https://api.workos.com/user_management/authorize")!), .allow)
         XCTAssertEqual(policy.decision(for: URL(string: "https://tenant.authkit.app/login")!), .allow)
         XCTAssertEqual(policy.decision(for: URL(string: "https://a.b.authkit.app/login")!), .external)
+        XCTAssertEqual(policy.decision(for: URL(string: "https://accounts.google.com/o/oauth2/v2/auth")!), .allow)
+        XCTAssertEqual(policy.decision(for: URL(string: "https://login.microsoftonline.com/common/oauth2/v2.0/authorize")!), .allow)
+        XCTAssertEqual(policy.decision(for: URL(string: "https://login.live.com/oauth20_authorize.srf")!), .allow)
+        XCTAssertEqual(policy.decision(for: URL(string: "https://login.microsoftonline.com.evil.example/login")!), .external)
         XCTAssertEqual(policy.decision(for: URL(string: "https://accounts.larksuite.com/accounts/page/login")!), .allow)
 
         XCTAssertEqual(policy.windowOpenDecision(for: URL(string: "https://api.workos.com/user_management/authorize")!,
-                                                  topURL: base), .deny)
+                                                  topURL: base), .loadInCompanion)
         XCTAssertEqual(policy.windowOpenDecision(for: URL(string: "https://tenant.authkit.app/login")!,
+                                                  topURL: base), .loadInCompanion)
+        XCTAssertEqual(policy.windowOpenDecision(for: URL(string: "https://login.microsoftonline.com/common/oauth2/v2.0/authorize")!,
+                                                  topURL: base), .loadInCompanion)
+        XCTAssertEqual(policy.windowOpenDecision(for: URL(string: "https://accounts.larksuite.com/accounts/page/login")!,
                                                   topURL: base), .deny)
         XCTAssertEqual(policy.windowOpenDecision(for: URL(string: "http://100.113.131.96:8090/companion/app/abc")!,
                                                   topURL: base), .loadInCompanion)
@@ -130,6 +138,33 @@ final class CompanionTests: XCTestCase {
                                                   topURL: base), .openExternally)
         XCTAssertEqual(policy.windowOpenDecision(for: URL(string: "http://100.113.131.96:8090/companion/app")!,
                                                   topURL: URL(string: "https://api.workos.com/login")!), .deny)
+    }
+
+    func testOllieDevIsReadOnlyOnlyOnProduction() {
+        let production = URL(string: "https://outlandishdigital.us/companion/app")!
+        XCTAssertTrue(CompanionWriteGuard.isReadOnly(baseURL: production, development: true))
+        XCTAssertTrue(CompanionWriteGuard.isReadOnly(baseURL: URL(string: "https://www.outlandishdigital.us")!,
+                                                     development: true))
+        XCTAssertFalse(CompanionWriteGuard.isReadOnly(baseURL: production, development: false))
+        XCTAssertFalse(CompanionWriteGuard.isReadOnly(baseURL: URL(string: "http://100.113.131.96:8090")!,
+                                                      development: true))
+        XCTAssertFalse(CompanionWriteGuard.isReadOnly(baseURL: URL(string: "https://notoutlandishdigital.us")!,
+                                                      development: true))
+        XCTAssertEqual(CompanionWriteGuard.refusal,
+                       "Ollie Dev is read-only on production. Use your real Ollie to approve.")
+    }
+
+    @MainActor func testActivityOpenPathsUseAgentAndShopPages() {
+        XCTAssertEqual(CompanionActivity.agentPagePath(resource: "shop/a", agent: "agent b"),
+                       "/companion/app/shop%2Fa/agents/agent%20b/home")
+        XCTAssertEqual(CompanionActivity.shopPagePath(resource: "shop/a"),
+                       "/companion/app/shop%2Fa/messages/management")
+    }
+
+    func testLarkPopupsAreOffByDefault() throws {
+        XCTAssertFalse(Settings().showLarkPopups)
+        let decoded = try JSONDecoder().decode(Settings.self, from: JSONEncoder().encode(Settings()))
+        XCTAssertFalse(decoded.showLarkPopups)
     }
 
 
@@ -375,7 +410,7 @@ final class CompanionTests: XCTestCase {
     }
 
     func testApprovalsTodoStates() {
-        let empty = CompanionTodoSnapshot(total: 0, shops: [])
+        let empty = CompanionTodoSnapshot(total: 0, shops: [], orderedItems: [])
         XCTAssertTrue(CompanionTodosState.ready(empty).showsEmpty)
         XCTAssertTrue(CompanionTodosState.failed.showsError)
         XCTAssertTrue(CompanionTodosState.signedOut.showsSignedOut)
@@ -465,4 +500,36 @@ final class CompanionTests: XCTestCase {
         XCTAssertEqual(policy.decision(for: URL(string: "https://notoutlandish.com/login")!), .external)
         XCTAssertEqual(policy.decision(for: URL(string: "mailto:help@example.com")!), .external)
     }
+
+    @MainActor func testLarkPopupsRespectPreferencePaneAndPermanentMute() {
+        let store = Store()
+        let chat = Chat(id: "alerts", name: "App Error Alerts", avatar: nil,
+                        isP2P: false, isTopic: false, detail: "", link: nil)
+        store.isExpanded = true
+        store.settings.showLarkPopups = false
+        store.ollieOpen = false
+        store.pushToast(chat: chat, text: "RuntimeException")
+        XCTAssertTrue(store.toasts.isEmpty)
+        XCTAssertNil(store.bubble)
+
+        store.settings.showLarkPopups = true
+        store.ollieOpen = true
+        XCTAssertFalse(store.showsLarkSurface)
+        store.pushToast(chat: chat, text: "RuntimeException")
+        XCTAssertTrue(store.toasts.isEmpty, "a Lark toast must not cover the Ollie pane")
+
+        store.ollieOpen = false
+        XCTAssertTrue(store.showsLarkSurface)
+        store.pushToast(chat: chat, text: "RuntimeException")
+        XCTAssertEqual(store.toasts.count, 1)
+
+        store.toasts = []
+        store.muteForever(chat)
+        XCTAssertTrue(store.isMuted(chat))
+        store.pushToast(chat: chat, text: "RuntimeException")
+        XCTAssertTrue(store.toasts.isEmpty, "a permanent mute suppresses the toast")
+        XCTAssertNil(store.bubble)
+        store.unmute(chat)
+    }
+
 }
