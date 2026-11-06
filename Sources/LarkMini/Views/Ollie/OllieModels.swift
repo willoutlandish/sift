@@ -10,12 +10,12 @@ enum OlliePacePill: Equatable {
 
     var text: String {
         switch self {
-        case .behind(let amount): return "Behind " + amount
-        case .onTrack: return "On track"
-        case .ahead(let amount): return "Ahead " + amount
-        case .tooEarly: return "Too early"
-        case .noTarget: return "No target"
-        case .noData: return "No sales data"
+        case .behind(let amount): return amount + " behind pace"
+        case .onTrack: return "On pace"
+        case .ahead: return "Ahead of pace"
+        case .tooEarly: return "Too early to tell"
+        case .noTarget: return "No target set"
+        case .noData: return "Pace unavailable"
         }
     }
 
@@ -23,7 +23,8 @@ enum OlliePacePill: Equatable {
         guard let pace else { return nil }
         switch pace.paceStatus {
         case "behind":
-            return .behind(CompanionPace.compactMoney(pace.gap, currency: pace.currency, signed: true))
+            let gap = pace.gap.map { abs($0) }
+            return .behind(CompanionPace.compactMoney(gap, currency: pace.currency))
         case "on_track":
             return .onTrack
         case "ahead":
@@ -149,7 +150,7 @@ struct OllieTodayModel: Equatable {
         if paceAvailable, !paceShops.isEmpty,
            (unavailable.map { $0 >= paceShops.count } ?? !paceShops.contains(where: { $0.mtd != nil })) {
             let noun = paceShops.count == 1 ? "shop" : "shops"
-            parts.append("No sales data yet for \(paceShops.count) \(noun)")
+            parts.append("\(paceShops.count) \(noun) not selling yet")
         } else if let onPace, let totalPace, let behind {
             parts.append("\(onPace) of \(totalPace) shops on pace")
             parts.append("\(totals?.behind ?? behind) behind")
@@ -158,7 +159,7 @@ struct OllieTodayModel: Equatable {
             }
         }
         if let working { parts.append("\(working) agents working") }
-        if let needYou { parts.append("\(needYou) need you") }
+        if let needYou { parts.append("\(needYou) waiting for you") }
 
         self.shops = shops
         self.summary = parts.joined(separator: " · ")
@@ -342,7 +343,7 @@ struct OllieApprovalsModel: Equatable {
             }
             .sorted { $0.label.localizedCaseInsensitiveCompare($1.label) == .orderedAscending }
         let filtered = category.map { selected in scope.filter { $0.categoryKey == selected } } ?? scope
-        let first = filtered.first
+        let first = filtered.first { $0.priorityBand == "now" }
         let remaining = Array(filtered.dropFirst())
 
         var groups: [String: [CompanionTodoItem]] = [:]

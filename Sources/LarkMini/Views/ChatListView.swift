@@ -8,7 +8,7 @@ struct ChatListView: View {
             HStack(spacing: 10) {
                 LarkIcon(size: 24)
                 VStack(alignment: .leading, spacing: 4) {
-                    Text("Lark").font(.system(size: 20, weight: .semibold)).lineLimit(1)
+                    Text("Inbox").font(.system(size: 20, weight: .semibold)).lineLimit(1)
                     Text(store.offline ? "Offline · showing saved chats" : "A little space for what needs you")
                         .font(.system(size: 11)).foregroundStyle(SiftStyle.secondary).lineLimit(1)
                 }

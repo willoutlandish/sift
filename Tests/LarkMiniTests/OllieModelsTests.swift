@@ -27,12 +27,12 @@ final class OllieModelsTests: XCTestCase {
         ]
         let model = OllieTodayModel(pace: pace, paceState: .available, snapshot: snapshot, activity: activity)
         XCTAssertEqual(model.shops.map(\.name), ["CROCS", "JLO", "AHEAD", "Alpha", "Zeta"])
-        XCTAssertEqual(model.shops[0].pill, .behind("−$7.3k"))
+        XCTAssertEqual(model.shops[0].pill, .behind("$7.3k"))
         XCTAssertEqual(model.shops[1].pill, .onTrack)
         XCTAssertEqual(model.shops[2].pill, .ahead("+$200"))
         XCTAssertEqual(model.shops[3].pill, .noTarget)
         XCTAssertEqual(model.shops[4].pill, .noData)
-        XCTAssertEqual(model.summary, "2 of 5 shops on pace · 1 behind · 3 agents working · 6 need you")
+        XCTAssertEqual(model.summary, "2 of 5 shops on pace · 1 behind · 3 agents working · 6 waiting for you")
     }
 
 
@@ -55,7 +55,7 @@ final class OllieModelsTests: XCTestCase {
         XCTAssertEqual(usd?.pace.goal, 3000)
         XCTAssertEqual(usd?.pace.expectedByToday, 900)
         XCTAssertEqual(usd?.pace.gap, -2100)
-        XCTAssertEqual(usd?.pill, .behind("−$2.1k"))
+        XCTAssertEqual(usd?.pill, .behind("$2.1k"))
         let gbp = model.allProgress.first { $0.currency == "GBP" }
         XCTAssertEqual(gbp?.pace.mtd, 50)
         XCTAssertEqual(gbp?.pace.goal, 100)
@@ -74,7 +74,7 @@ final class OllieModelsTests: XCTestCase {
                                    progressPct: nil, paceStatus: "no_data", basis: "total")
         ]
         let model = OllieTodayModel(pace: pace, paceState: .available, snapshot: nil, activity: [:])
-        XCTAssertEqual(model.summary, "No sales data yet for 2 shops")
+        XCTAssertEqual(model.summary, "2 shops not selling yet")
     }
 
 
@@ -98,7 +98,7 @@ final class OllieModelsTests: XCTestCase {
         XCTAssertEqual(usd?.pace.expectedByToday, 600)
         XCTAssertEqual(usd?.pace.gap, -300)
         XCTAssertEqual(usd?.bar.expectedFraction ?? 0, 0.2, accuracy: 0.0001)
-        XCTAssertEqual(usd?.pill, .behind("−$300"))
+        XCTAssertEqual(usd?.pill, .behind("$300"))
         XCTAssertEqual(usd?.pace.metricsThrough, "2026-11-06")
         let gbp = model.allProgress.first { $0.currency == "GBP" }
         XCTAssertEqual(gbp?.pace.expectedByToday, 20)
@@ -173,7 +173,8 @@ final class OllieModelsTests: XCTestCase {
           {"resource":"north","name":"North Studio","services":[
             {"label":"Promotions","items":[
               {"id":"a","question":"Raise discount","kind":"money","source":"agent_ask","age_seconds":3600,
-               "status_reason":"On 3 products","expires_at":null,"can_answer":true,"answers":["approve","skip"]},
+               "status_reason":"On 3 products","expires_at":null,"can_answer":true,"answers":["approve","skip"],
+               "priority":{"band":"now"}},
               {"id":"b","question":"Send sample to Jess","kind":"creator_sample","source":"send_approval","age_seconds":7200,"can_answer":true,"answers":["approve","skip"]},
               {"id":"c","question":"Send sample to Kai","kind":"creator_sample","source":"send_approval","age_seconds":7300,"can_answer":true,"answers":["approve","skip"]},
               {"id":"d","question":"Set weekly budget","kind":"money","source":"send_approval","age_seconds":2678400,

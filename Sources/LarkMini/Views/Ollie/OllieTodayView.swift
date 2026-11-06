@@ -167,7 +167,7 @@ struct OllieTodayView: View {
                 OlliePaceBar(model: bar, tone: shop.pill?.tone ?? .muted)
                     .padding(.top, 9)
                 HStack {
-                    Text("\(CompanionPace.compactMoney(shop.pace?.mtd, currency: shop.pace?.currency)) of \(CompanionPace.compactMoney(shop.pace?.goal, currency: shop.pace?.currency))")
+                    Text("\(Int((shop.pace?.progressPct ?? 0).rounded()))% of \(CompanionPace.compactMoney(shop.pace?.goal, currency: shop.pace?.currency)) month target")
                     Spacer(minLength: 0)
                     Text("expected \(CompanionPace.compactMoney(shop.pace?.expectedByToday, currency: shop.pace?.currency))")
                 }
@@ -193,7 +193,7 @@ struct OllieTodayView: View {
                 } else if shop.activity == nil {
                     actionButton(title: "Activity", value: "›", valueColor: OllieStyle.dim) { onActivity(shop) }
                 }
-                actionButton(title: "Approvals",
+                actionButton(title: "Waiting on you",
                              value: shop.pending.map { "\($0) ›" } ?? "›",
                              valueColor: OllieStyle.lime) { onApprovals(shop) }
             }
@@ -222,7 +222,7 @@ struct OllieTodayView: View {
                 .padding(.top, 9)
             HStack {
                 if let mtd = progress.pace.mtd {
-                    Text("\(CompanionPace.compactMoney(mtd, currency: progress.currency)) of \(CompanionPace.compactMoney(progress.pace.goal, currency: progress.currency))")
+                    Text("\(Int((progress.pace.progressPct ?? 0).rounded()))% of \(CompanionPace.compactMoney(progress.pace.goal, currency: progress.currency)) month target")
                 } else if progress.pace.goal != nil {
                     Text("No sales data · goal \(CompanionPace.compactMoney(progress.pace.goal, currency: progress.currency))")
                 } else {
@@ -244,6 +244,8 @@ struct OllieTodayView: View {
         .padding(11)
         .background(OllieStyle.card, in: RoundedRectangle(cornerRadius: OllieStyle.cardRadius))
         .overlay(RoundedRectangle(cornerRadius: OllieStyle.cardRadius).strokeBorder(OllieStyle.lime.opacity(0.35)))
+        .contentShape(RoundedRectangle(cornerRadius: OllieStyle.cardRadius))
+        .onTapGesture { store.openCompanion(path: "/companion/app") }
     }
 
     private func actionButton(title: String, value: String, valueColor: Color,

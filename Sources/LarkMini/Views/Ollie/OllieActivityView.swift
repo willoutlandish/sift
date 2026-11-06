@@ -182,6 +182,6 @@ struct OllieActivityView: View {
             .shadow(color: agent.state == "working" ? OllieStyle.blue.opacity(0.18) : .clear, radius: 4)
         }
         .buttonStyle(.plain)
-        .help("Open \(agent.name) in Companion (agent page; Activity has no deep link)")
+        .help("Open \(agent.name) in Companion")
     }
 }

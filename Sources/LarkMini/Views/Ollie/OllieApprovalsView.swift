@@ -9,8 +9,6 @@ struct OllieApprovalsView: View {
 
     @State private var showAll: Bool
     @State private var selectedCategory: String?
-    @State private var expandedBatch: String?
-    @State private var pendingBatch: (id: String, answer: String, itemIds: Set<String>)?
     @State private var banner: String?
 
     init(resource: String?, name: String?, onBack: @escaping () -> Void) {
@@ -50,7 +48,7 @@ struct OllieApprovalsView: View {
                 OllieCompanionButton()
             }
             HStack(alignment: .firstTextBaseline) {
-                Text("Approvals").font(.system(size: 20, weight: .semibold))
+                Text("Waiting on you").font(.system(size: 20, weight: .semibold))
                 Spacer(minLength: 0)
                 Text("\(model.totalHere) here · \(model.totalAll) all shops")
                     .font(.system(size: 11.5)).foregroundStyle(OllieStyle.dim)
@@ -177,78 +175,19 @@ struct OllieApprovalsView: View {
     }
 
     private func batchRow(_ batch: OllieApprovalBatch) -> some View {
-        VStack(alignment: .leading, spacing: 7) {
-            HStack(spacing: 6) {
-                Text(batch.label).font(.system(size: 12.5, weight: .semibold))
-                    .foregroundStyle(OllieStyle.text)
-                tag(batch.items.first)
-                Spacer(minLength: 0)
-                Button(expandedBatch == batch.id ? "Hide" : "Review all ›") {
-                    expandedBatch = expandedBatch == batch.id ? nil : batch.id
-                }
+        HStack(spacing: 6) {
+            Text(batch.label).font(.system(size: 12.5, weight: .semibold))
+                .foregroundStyle(OllieStyle.text)
+            tag(batch.items.first)
+            Spacer(minLength: 0)
+            Button("Review all ›") { store.openCompanion(path: "/companion/app/approvals") }
                 .buttonStyle(.plain).font(.system(size: 12, weight: .semibold))
                 .foregroundStyle(OllieStyle.lime)
-            }
-            if expandedBatch == batch.id {
-                VStack(alignment: .leading, spacing: 4) {
-                    ForEach(batch.items) { item in
-                        Text("• " + item.title).font(.system(size: 11.5))
-                            .foregroundStyle(OllieStyle.dim).lineLimit(1)
-                    }
-                    if let pendingBatch, pendingBatch.id == batch.id {
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text(pendingBatch.answer == "approve" ? "Approve these \(batch.items.count) items?" : "Decline these \(batch.items.count) items?")
-                                .font(.system(size: 11.5, weight: .semibold)).foregroundStyle(OllieStyle.text)
-                            ForEach(batch.items) { item in
-                                Text("• " + item.title).font(.system(size: 11)).foregroundStyle(OllieStyle.dim).lineLimit(1)
-                            }
-                            HStack(spacing: 10) {
-                                Button(pendingBatch.answer == "approve" ? "Confirm approve all" : "Confirm decline all") {
-                                    decideBatch(batch, answer: pendingBatch.answer,
-                                                itemIds: pendingBatch.itemIds)
-                                }
-                                .buttonStyle(.plain).font(.system(size: 11, weight: .semibold))
-                                .foregroundStyle(OllieStyle.lime)
-                                Button("Cancel") { self.pendingBatch = nil }
-                                    .buttonStyle(.plain).font(.system(size: 11))
-                                    .foregroundStyle(OllieStyle.dim)
-                            }
-                        }
-                        .padding(7)
-                        .background(OllieStyle.bg, in: RoundedRectangle(cornerRadius: 7))
-                    } else if !monitor.isReadOnly {
-                        HStack(spacing: 10) {
-                            Button("Approve all") {
-                                pendingBatch = (batch.id, "approve", Set(batch.items.map(\.id)))
-                            }
-                                .buttonStyle(.plain).font(.system(size: 11, weight: .semibold))
-                                .foregroundStyle(OllieStyle.lime)
-                            Button("Decline all") {
-                                pendingBatch = (batch.id, "skip", Set(batch.items.map(\.id)))
-                            }
-                                .buttonStyle(.plain).font(.system(size: 11, weight: .semibold))
-                                .foregroundStyle(OllieStyle.dim)
-                        }
-                    }
-                }
-                .padding(.top, 2)
-            }
         }
         .padding(10)
         .background(OllieStyle.card2, in: RoundedRectangle(cornerRadius: OllieStyle.cardRadius))
         .overlay(RoundedRectangle(cornerRadius: OllieStyle.cardRadius)
             .strokeBorder(OllieStyle.border, style: StrokeStyle(lineWidth: 1, dash: [4, 3])))
-    }
-
-    private func decideBatch(_ batch: OllieApprovalBatch, answer: String, itemIds: Set<String>) {
-        pendingBatch = nil
-        let items = batch.items.filter { itemIds.contains($0.id) }
-        guard !items.isEmpty else { return }
-        Task { @MainActor in
-            let outcome = await CompanionApprovalsActions.shared.submitBatch(items: items, answer: answer)
-            banner = outcome.message
-            monitor.refresh()
-        }
     }
 
     private func approvalRow(_ item: CompanionTodoItem) -> some View {
