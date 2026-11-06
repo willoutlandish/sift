@@ -18,6 +18,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var companionStatusObserver: NSObjectProtocol?
     private var companionOpenObserver: NSObjectProtocol?
     private var companionPaceObserver: NSObjectProtocol?
+    private var companionDragMapObserver: NSObjectProtocol?
     private var settingsObserver: NSObjectProtocol?
     private var panelSettingsObserver: NSObjectProtocol?
     private var badgeWatch: AnyCancellable?
@@ -83,6 +84,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             forName: .companionPaceRequest, object: nil, queue: .main
         ) { [weak self] note in
             MainActor.assumeIsolated { self?.answerCompanionPace(note) }
+        }
+        companionDragMapObserver = DistributedNotificationCenter.default().addObserver(
+            forName: .companionDragMapRequest, object: nil, queue: .main
+        ) { [weak self] note in
+            MainActor.assumeIsolated { self?.answerCompanionDragMap(note) }
         }
         installEditMenu()
         installKeyMonitor()
@@ -167,6 +173,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if let companionPaceObserver {
             DistributedNotificationCenter.default().removeObserver(companionPaceObserver)
         }
+        if let companionDragMapObserver {
+            DistributedNotificationCenter.default().removeObserver(companionDragMapObserver)
+        }
     }
 
     private func answerCompanionStatus(_ note: Notification) {
@@ -180,6 +189,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             let file = AppPaths.supportDirectory
                 .appendingPathComponent("companion-status-\(id)-\(instance).json")
             let payload: [String: Any] = ["signed_in": result.signedIn, "cookie_present": result.cookiePresent]
+            guard let data = try? JSONSerialization.data(withJSONObject: payload) else { return }
+            try? data.write(to: file, options: .atomic)
+        }
+    }
+
+    private func answerCompanionDragMap(_ note: Notification) {
+        guard let id = note.userInfo?["id"] as? String, UUID(uuidString: id) != nil,
+              note.userInfo?["home"] as? String == AppPaths.supportDirectory.path,
+              let requested = (note.userInfo?["url"] as? String).flatMap(CompanionConfig.validatedURL),
+              let configured = StateFile.shared.reload().companionURL.flatMap(CompanionConfig.validatedURL),
+              requested.absoluteString == configured.absoluteString else { return }
+        let instance = companionStatusInstance
+        Task { @MainActor in
+            var payload = await CompanionWindowController.shared.dragMapPayload()
+            payload["ok"] = true
+            payload["url"] = requested.absoluteString
+            let file = AppPaths.supportDirectory
+                .appendingPathComponent("companion-drag-map-\(id)-\(instance).json")
             guard let data = try? JSONSerialization.data(withJSONObject: payload) else { return }
             try? data.write(to: file, options: .atomic)
         }

@@ -177,23 +177,21 @@ final class CompanionTests: XCTestCase {
     }
 
 
-    func testNativeTitlebarDragUsesInteractiveRectsAndInsetStrip() {
+    func testNativeTitlebarDragUsesSampledControlIntervals() {
         let bounds = CGRect(x: 0, y: 0, width: 800, height: 600)
+        // A full-width tabindex container is absent from the map; only its button is present.
+        let row = CompanionDragRow(start: 0, end: 52, intervals: [300...400])
         XCTAssertTrue(CompanionDragHitTest.shouldDrag(
-            point: CGPoint(x: 100, y: 570), in: bounds, strip: 52, interactiveRects: []))
-        XCTAssertTrue(CompanionDragHitTest.shouldDrag(
-            point: CGPoint(x: 100, y: 552), in: bounds, strip: 52, interactiveRects: []))
+            point: CGPoint(x: 100, y: 570), in: bounds, strip: 52, rows: [row]))
         XCTAssertFalse(CompanionDragHitTest.shouldDrag(
-            point: CGPoint(x: 100, y: 540), in: bounds, strip: 52, interactiveRects: []))
-        let button = CGRect(x: 50, y: 10, width: 100, height: 30)
+            point: CGPoint(x: 350, y: 570), in: bounds, strip: 52, rows: [row]))
         XCTAssertFalse(CompanionDragHitTest.shouldDrag(
-            point: CGPoint(x: 100, y: 570), in: bounds, strip: 52, interactiveRects: [button]))
+            point: CGPoint(x: 350, y: 552), in: bounds, strip: 52, rows: [row]))
+        let insetRow = CompanionDragRow(start: 0, end: 28, intervals: [])
         XCTAssertTrue(CompanionDragHitTest.shouldDrag(
-            point: CGPoint(x: 300, y: 570), in: bounds, strip: 52, interactiveRects: [button]))
-        XCTAssertTrue(CompanionDragHitTest.shouldDrag(
-            point: CGPoint(x: 100, y: 580), in: bounds, strip: 28, interactiveRects: []))
+            point: CGPoint(x: 100, y: 580), in: bounds, strip: 28, rows: [insetRow]))
         XCTAssertFalse(CompanionDragHitTest.shouldDrag(
-            point: CGPoint(x: 100, y: 560), in: bounds, strip: 28, interactiveRects: []))
+            point: CGPoint(x: 100, y: 560), in: bounds, strip: 28, rows: [insetRow]))
     }
 
     func testDoubleClickActionFollowsApplePreference() {

@@ -3,7 +3,7 @@ import WebKit
 
 final class CompanionWebView: WKWebView {
     var isCompanionPage: () -> Bool = { false }
-    var interactiveRects: () -> [CGRect] = { [] }
+    var interactiveRows: () -> [CompanionDragRow] = { [] }
     var onDoubleClick: () -> Void = {}
 
     override func mouseDown(with event: NSEvent) {
@@ -15,7 +15,7 @@ final class CompanionWebView: WKWebView {
         let strip = isCompanionPage() ? CompanionDragHitTest.titleBarHeight
                                       : CompanionDragHitTest.insetTitleBarHeight
         guard CompanionDragHitTest.shouldDrag(point: point, in: bounds, strip: strip,
-                                               interactiveRects: interactiveRects()) else {
+                                               rows: interactiveRows()) else {
             super.mouseDown(with: event)
             return
         }
@@ -38,7 +38,7 @@ final class CompanionWindowController: NSWindowController, WKNavigationDelegate,
     private var windowObservers: [NSObjectProtocol] = []
     private var lastTitlebarDoubleClick = Date.distantPast
     private var passkeyHintShown = false
-    private var titlebarRects: [CGRect] = []
+    private var titlebarRows: [CompanionDragRow] = []
 
     private init() {
         let configuration = WKWebViewConfiguration()
@@ -76,7 +76,7 @@ final class CompanionWindowController: NSWindowController, WKNavigationDelegate,
         contentController.add(self, contentWorld: .page, name: "ollieAuthHint")
         contentController.add(self, contentWorld: .page, name: "ollieTitlebar")
         webView.isCompanionPage = { [weak self] in self?.companionPageActive ?? false }
-        webView.interactiveRects = { [weak self] in self?.titlebarRects ?? [] }
+        webView.interactiveRows = { [weak self] in self?.titlebarRows ?? [] }
         webView.onDoubleClick = { [weak self] in self?.performTitlebarDoubleClick() }
         positionTrafficLights()
         windowObservers = [
@@ -181,6 +181,14 @@ final class CompanionWindowController: NSWindowController, WKNavigationDelegate,
         }
     }
 
+    func dragMapPayload() async -> [String: Any] {
+        let rows = titlebarRows.map { row in
+            ["start": Double(row.start), "end": Double(row.end),
+             "intervals": row.intervals.map { [Double($0.lowerBound), Double($0.upperBound)] }]
+        }
+        return ["ok": true, "url": webView.url?.absoluteString ?? "", "rows": rows]
+    }
+
     required init?(coder: NSCoder) {
         fatalError("init(coder:) has not been implemented")
     }
@@ -274,24 +282,55 @@ final class CompanionWindowController: NSWindowController, WKNavigationDelegate,
           const strip = isCompanion ? 52 : 28;
           const handler = window.webkit && window.webkit.messageHandlers &&
             window.webkit.messageHandlers.ollieTitlebar;
-          const interactive = [
-            'button', 'a', 'input', 'select', 'textarea', '[role="button"]', '[role="menu"]',
-            '[role="menuitem"]', '[role="dialog"]', '[contenteditable]', '[tabindex]', '[onclick]'
-          ].join(',');
-          let scheduled = false;
-          const post = function () {
-            if (!handler) return;
-            const rects = [];
-            document.querySelectorAll(interactive).forEach(function (element) {
-              const rect = element.getBoundingClientRect();
-              if (rect.width <= 0 || rect.height <= 0 || rect.bottom <= 0 || rect.top >= strip) return;
-              rects.push([
-                Math.round(rect.left * 10) / 10, Math.round(rect.top * 10) / 10,
-                Math.round(rect.width * 10) / 10, Math.round(rect.height * 10) / 10
-              ]);
-            });
-            handler.postMessage(rects);
+          const controlTags = new Set(['button', 'input', 'select', 'textarea', 'summary']);
+          const controlRoles = new Set([
+            'button', 'link', 'menuitem', 'tab', 'switch', 'checkbox', 'combobox', 'option'
+          ]);
+          const isControl = function (element) {
+            let node = element;
+            while (node && node !== document.body && node !== document.documentElement) {
+              const tag = (node.tagName || '').toLowerCase();
+              const role = ((node.getAttribute && node.getAttribute('role')) || '').toLowerCase();
+              if (controlTags.has(tag)) return true;
+              if (tag === 'a' && node.hasAttribute('href')) return true;
+              if (tag === 'label' && node.hasAttribute('for')) return true;
+              if (controlRoles.has(role)) return true;
+              if (node.getAttribute && node.getAttribute('contenteditable') === 'true') return true;
+              if (window.getComputedStyle(node).cursor === 'pointer') return true;
+              node = node.parentElement;
+            }
+            return false;
           };
+          const build = function () {
+            const width = Math.max(1, window.innerWidth);
+            const count = strip >= 52 ? 3 : 2;
+            const band = strip / count;
+            const rows = [];
+            for (let index = 0; index < count; index++) {
+              const start = index * band;
+              const end = (index + 1) * band;
+              const y = (start + end) / 2;
+              const intervals = [];
+              let current = null;
+              for (let x = 0; x < width; x += 4) {
+                const element = document.elementFromPoint(x, y);
+                const hit = element ? isControl(element) : false;
+                if (hit) {
+                  if (!current) current = [x, Math.min(width, x + 4)];
+                  else current[1] = Math.min(width, x + 4);
+                } else if (current) {
+                  intervals.push(current);
+                  current = null;
+                }
+              }
+              if (current) intervals.push(current);
+              rows.push({ start: start, end: end, intervals: intervals });
+            }
+            return rows;
+          };
+          window.__ollieTitlebarMap = build;
+          const post = function () { if (handler) handler.postMessage(build()); };
+          let scheduled = false;
           const schedule = function () {
             if (scheduled) return;
             scheduled = true;
@@ -301,7 +340,7 @@ final class CompanionWindowController: NSWindowController, WKNavigationDelegate,
           document.addEventListener('scroll', schedule, true);
           new MutationObserver(schedule).observe(document.documentElement,
             { childList: true, subtree: true, attributes: true,
-              attributeFilter: ['style', 'class', 'hidden', 'aria-hidden'] });
+              attributeFilter: ['style', 'class', 'hidden', 'aria-hidden', 'href', 'role'] });
           if (window.ResizeObserver) new ResizeObserver(schedule).observe(document.documentElement);
           document.addEventListener('DOMContentLoaded', schedule);
           if (!isCompanion) {
@@ -337,11 +376,16 @@ final class CompanionWindowController: NSWindowController, WKNavigationDelegate,
             showPasskeyHint()
             return
         }
-        guard message.name == "ollieTitlebar", let rows = message.body as? [[NSNumber]] else { return }
-        titlebarRects = rows.compactMap { row in
-            guard row.count == 4 else { return nil }
-            return CGRect(x: row[0].doubleValue, y: row[1].doubleValue,
-                          width: row[2].doubleValue, height: row[3].doubleValue)
+        guard message.name == "ollieTitlebar", let rows = message.body as? [[String: Any]] else { return }
+        titlebarRows = rows.compactMap { row in
+            guard let start = row["start"] as? Double, let end = row["end"] as? Double,
+                  let pairs = row["intervals"] as? [[Any]] else { return nil }
+            let intervals = pairs.compactMap { pair -> ClosedRange<CGFloat>? in
+                guard pair.count == 2,
+                      let low = pair[0] as? NSNumber, let high = pair[1] as? NSNumber else { return nil }
+                return CGFloat(low.doubleValue)...CGFloat(high.doubleValue)
+            }
+            return CompanionDragRow(start: CGFloat(start), end: CGFloat(end), intervals: intervals)
         }
     }
 
@@ -360,7 +404,7 @@ final class CompanionWindowController: NSWindowController, WKNavigationDelegate,
 
     func webView(_ webView: WKWebView, didCommit navigation: WKNavigation!) {
         passkeyHintShown = false
-        titlebarRects = []
+        titlebarRows = []
     }
 
     func userContentController(_ userContentController: WKUserContentController,

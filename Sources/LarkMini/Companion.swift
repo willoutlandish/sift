@@ -71,6 +71,12 @@ struct CompanionBridgeShell: Equatable {
     static let darwinInset = CompanionBridgeShell(kind: "desktop", platform: "darwin", titleBar: "hidden-inset")
 }
 
+struct CompanionDragRow: Equatable {
+    let start: CGFloat
+    let end: CGFloat
+    let intervals: [ClosedRange<CGFloat>]
+}
+
 enum CompanionDragHitTest {
     static let titleBarHeight: CGFloat = 52
     static let insetTitleBarHeight: CGFloat = 28
@@ -82,12 +88,12 @@ enum CompanionDragHitTest {
     }
 
     static func shouldDrag(point: CGPoint, in bounds: CGRect, strip: CGFloat,
-                           interactiveRects: [CGRect]) -> Bool {
+                           rows: [CompanionDragRow]) -> Bool {
         let top = bounds.maxY - point.y
         guard top >= 0, top <= strip else { return false }
-        return !interactiveRects.contains { rect in
-            point.x >= rect.minX && point.x <= rect.maxX
-                && top >= rect.minY && top <= rect.maxY
+        return !rows.contains { row in
+            row.start <= top && top <= row.end
+                && row.intervals.contains { $0.contains(point.x) }
         }
     }
 
@@ -284,6 +290,7 @@ extension Notification.Name {
     static let companionOpenRequest = Notification.Name.companion("companion-open-request")
     static let companionPaceRequest = Notification.Name.companion("companion-pace-request")
     static let appSettingsChanged = Notification.Name.companion("settings-changed")
+    static let companionDragMapRequest = Notification.Name.companion("companion-drag-map-request")
 }
 
 enum CompanionSession {

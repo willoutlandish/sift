@@ -371,6 +371,8 @@ enum CLI {
             return companionStatus(state)
         case "pace":
             return companionPace(state)
+        case "drag-map":
+            return companionDragMap(state)
         case "set":
             let flags = Flags(args)
             guard let raw = flags.value("--url") else {
@@ -520,6 +522,41 @@ enum CLI {
         }
         cleanupCompanionFiles(prefix: prefix, in: directory)
         return fail("No running Ollie answered the pace request.")
+    }
+
+    private static func companionDragMap(_ state: StateFile) -> Int32 {
+        guard AppIdentity.isDevelopment else {
+            return fail("companion drag-map is only available in Ollie Dev")
+        }
+        guard let raw = state.current.companionURL,
+              let base = CompanionConfig.validatedURL(raw) else {
+            return fail("No Companion URL configured. Run ollie companion set --url http://host:port")
+        }
+        let request = UUID().uuidString
+        let prefix = "companion-drag-map-\(request)-"
+        let directory = AppPaths.supportDirectory
+        let fileManager = FileManager.default
+        DistributedNotificationCenter.default().post(
+            name: .companionDragMapRequest, object: nil,
+            userInfo: ["id": request, "url": base.absoluteString, "home": directory.path])
+        let deadline = Date().addingTimeInterval(5)
+        while Date() < deadline {
+            if let files = try? fileManager.contentsOfDirectory(at: directory,
+                                                                includingPropertiesForKeys: nil) {
+                for file in files where file.lastPathComponent.hasPrefix(prefix) {
+                    defer { try? fileManager.removeItem(at: file) }
+                    if let data = try? Data(contentsOf: file),
+                       let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+                        var payload = object
+                        payload["ok"] = true
+                        return ok(payload)
+                    }
+                }
+            }
+            Thread.sleep(forTimeInterval: 0.05)
+        }
+        cleanupCompanionFiles(prefix: prefix, in: directory)
+        return fail("No running Ollie answered the drag-map request.")
     }
 
     private static func companionOpenRequest(base: URL, path: String) -> Bool {
@@ -696,6 +733,7 @@ enum CLI {
       companion Open the real Companion web app in its own Ollie window
                   set --url http://host:port
                   status | pace | open [--path /same-origin/path]
+                  drag-map                         dev-only titlebar hit map
       settings  set --show-in menubar|edge|both
       doctor    Check credentials, token and chat access
       open      Open the Ollie app
