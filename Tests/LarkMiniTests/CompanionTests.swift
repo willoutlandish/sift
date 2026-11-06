@@ -177,25 +177,37 @@ final class CompanionTests: XCTestCase {
     }
 
 
-    func testTitlebarDragHitTest() {
-        XCTAssertTrue(CompanionDragHitTest.shouldDrag(button: 0, y: 0, interactive: false))
-        XCTAssertTrue(CompanionDragHitTest.shouldDrag(button: 0, y: 52, interactive: false))
-        XCTAssertFalse(CompanionDragHitTest.shouldDrag(button: 0, y: 53, interactive: false))
-        XCTAssertFalse(CompanionDragHitTest.shouldDrag(button: 1, y: 18, interactive: false))
-        XCTAssertFalse(CompanionDragHitTest.shouldDrag(button: 0, y: 18, interactive: true))
-        XCTAssertTrue(CompanionDragHitTest.shouldDoubleClick(y: 18, interactive: false))
-        XCTAssertFalse(CompanionDragHitTest.shouldDoubleClick(y: 18, interactive: true))
-        XCTAssertFalse(CompanionDragHitTest.shouldDoubleClick(y: 53, interactive: false))
+    func testNativeTitlebarDragUsesInteractiveRectsAndInsetStrip() {
+        let bounds = CGRect(x: 0, y: 0, width: 800, height: 600)
+        XCTAssertTrue(CompanionDragHitTest.shouldDrag(
+            point: CGPoint(x: 100, y: 570), in: bounds, strip: 52, interactiveRects: []))
+        XCTAssertTrue(CompanionDragHitTest.shouldDrag(
+            point: CGPoint(x: 100, y: 552), in: bounds, strip: 52, interactiveRects: []))
+        XCTAssertFalse(CompanionDragHitTest.shouldDrag(
+            point: CGPoint(x: 100, y: 540), in: bounds, strip: 52, interactiveRects: []))
+        let button = CGRect(x: 50, y: 10, width: 100, height: 30)
+        XCTAssertFalse(CompanionDragHitTest.shouldDrag(
+            point: CGPoint(x: 100, y: 570), in: bounds, strip: 52, interactiveRects: [button]))
+        XCTAssertTrue(CompanionDragHitTest.shouldDrag(
+            point: CGPoint(x: 300, y: 570), in: bounds, strip: 52, interactiveRects: [button]))
+        XCTAssertTrue(CompanionDragHitTest.shouldDrag(
+            point: CGPoint(x: 100, y: 580), in: bounds, strip: 28, interactiveRects: []))
+        XCTAssertFalse(CompanionDragHitTest.shouldDrag(
+            point: CGPoint(x: 100, y: 560), in: bounds, strip: 28, interactiveRects: []))
+    }
+
+    func testDoubleClickActionFollowsApplePreference() {
+        XCTAssertEqual(CompanionDragHitTest.doubleClickAction("Maximize"), .zoom)
+        XCTAssertEqual(CompanionDragHitTest.doubleClickAction("Minimize"), .minimize)
+        XCTAssertEqual(CompanionDragHitTest.doubleClickAction("None"), .none)
+        XCTAssertEqual(CompanionDragHitTest.doubleClickAction(nil), .zoom)
     }
 
     func testBridgeShellUsesHiddenInsetTitleBar() {
         XCTAssertEqual(CompanionBridge.shell.kind, "desktop")
         XCTAssertEqual(CompanionBridge.shell.platform, "darwin")
         XCTAssertEqual(CompanionBridge.shell.titleBar, "hidden-inset")
-        XCTAssertEqual(CompanionBridge.validate(method: "drag", arguments: []), .drag)
-        XCTAssertEqual(CompanionBridge.validate(method: "titlebarDoubleClick", arguments: []),
-                       .titlebarDoubleClick)
-        XCTAssertEqual(CompanionBridge.validate(method: "drag", arguments: ["x"]), .invalid)
+        XCTAssertEqual(CompanionBridge.validate(method: "drag", arguments: []), .invalid)
     }
 
     func testBridgeValidatesArgumentsAndOrigins() {

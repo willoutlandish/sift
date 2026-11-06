@@ -1,24 +1,51 @@
 import AppKit
 import WebKit
 
+final class CompanionWebView: WKWebView {
+    var isCompanionPage: () -> Bool = { false }
+    var interactiveRects: () -> [CGRect] = { [] }
+    var onDoubleClick: () -> Void = {}
+
+    override func mouseDown(with event: NSEvent) {
+        guard event.buttonNumber == 0 else {
+            super.mouseDown(with: event)
+            return
+        }
+        let point = convert(event.locationInWindow, from: nil)
+        let strip = isCompanionPage() ? CompanionDragHitTest.titleBarHeight
+                                      : CompanionDragHitTest.insetTitleBarHeight
+        guard CompanionDragHitTest.shouldDrag(point: point, in: bounds, strip: strip,
+                                               interactiveRects: interactiveRects()) else {
+            super.mouseDown(with: event)
+            return
+        }
+        if event.clickCount == 2 {
+            onDoubleClick()
+            return
+        }
+        window?.performDrag(with: event)
+    }
+}
+
 @MainActor
 final class CompanionWindowController: NSWindowController, WKNavigationDelegate, WKUIDelegate, WKDownloadDelegate, WKScriptMessageHandler, WKScriptMessageHandlerWithReply {
     static let shared = CompanionWindowController()
 
-    private let webView: WKWebView
+    private let webView: CompanionWebView
     private let userContentController: WKUserContentController
     private var policy: CompanionNavigationPolicy?
     private var baseURL: URL?
     private var windowObservers: [NSObjectProtocol] = []
     private var lastTitlebarDoubleClick = Date.distantPast
     private var passkeyHintShown = false
+    private var titlebarRects: [CGRect] = []
 
     private init() {
         let configuration = WKWebViewConfiguration()
         configuration.websiteDataStore = .default()
         let contentController = WKUserContentController()
         configuration.userContentController = contentController
-        let webView = WKWebView(frame: .zero, configuration: configuration)
+        let webView = CompanionWebView(frame: .zero, configuration: configuration)
         webView.allowsMagnification = true
         webView.autoresizingMask = [.width, .height]
 
@@ -47,6 +74,10 @@ final class CompanionWindowController: NSWindowController, WKNavigationDelegate,
         webView.uiDelegate = self
         contentController.addScriptMessageHandler(self, contentWorld: .page, name: "ollie")
         contentController.add(self, contentWorld: .page, name: "ollieAuthHint")
+        contentController.add(self, contentWorld: .page, name: "ollieTitlebar")
+        webView.isCompanionPage = { [weak self] in self?.companionPageActive ?? false }
+        webView.interactiveRects = { [weak self] in self?.titlebarRects ?? [] }
+        webView.onDoubleClick = { [weak self] in self?.performTitlebarDoubleClick() }
         positionTrafficLights()
         windowObservers = [
             NotificationCenter.default.addObserver(forName: NSWindow.didResizeNotification,
@@ -117,6 +148,13 @@ final class CompanionWindowController: NSWindowController, WKNavigationDelegate,
         updateLightsInset()
     }
 
+    private var companionPageActive: Bool {
+        guard let baseURL, let url = webView.url else { return false }
+        return CompanionConfig.originMatches(scheme: url.scheme ?? "", host: url.host ?? "",
+                                             port: url.port ?? 0, base: baseURL)
+            && CompanionConfig.isCompanionAppPath(url.path)
+    }
+
     private func lightsRightEdge() -> CGFloat? {
         guard let window, let zoom = window.standardWindowButton(.zoomButton), let content = window.contentView else {
             return nil
@@ -130,35 +168,16 @@ final class CompanionWindowController: NSWindowController, WKNavigationDelegate,
         webView.evaluateJavaScript(script, completionHandler: nil)
     }
 
-    private func performWindowDrag() {
-        guard let window else { return }
-        let location = window.mouseLocationOutsideOfEventStream
-        let event = NSApp.currentEvent?.type == .leftMouseDown ? NSApp.currentEvent : NSEvent.mouseEvent(
-            with: .leftMouseDown,
-            location: location,
-            modifierFlags: [],
-            timestamp: ProcessInfo.processInfo.systemUptime,
-            windowNumber: window.windowNumber,
-            context: nil,
-            eventNumber: 0,
-            clickCount: 1,
-            pressure: 1)
-        guard let event else { return }
-        window.performDrag(with: event)
-    }
-
     private func performTitlebarDoubleClick() {
         guard let window else { return }
         let now = Date()
         guard now.timeIntervalSince(lastTitlebarDoubleClick) > 0.35 else { return }
         lastTitlebarDoubleClick = now
-        switch UserDefaults.standard.string(forKey: "AppleActionOnDoubleClick") ?? "Maximize" {
-        case "Minimize":
-            window.miniaturize(nil)
-        case "None":
-            break
-        default:
-            window.zoom(nil)
+        switch CompanionDragHitTest.doubleClickAction(
+            UserDefaults.standard.string(forKey: "AppleActionOnDoubleClick")) {
+        case .minimize: window.miniaturize(nil)
+        case .zoom: window.zoom(nil)
+        case .none: break
         }
     }
 
@@ -246,29 +265,46 @@ final class CompanionWindowController: NSWindowController, WKNavigationDelegate,
             { childList: true, subtree: true });
         })();
         """
-        let dragSource = """
+        let titlebarSource = """
         (function () {
           const appOrigin = "\(escaped)";
-          if (window.top !== window || location.origin !== appOrigin) return;
-          const handler = window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.ollie;
-          if (!handler) return;
-          const interactive = "button, a, input, select, textarea, [role='menu'], [role='menuitem'], [role='dialog'], [contenteditable]";
-          const isInteractive = (target) => !!(target && target.closest && target.closest(interactive));
-          const inTitleBar = (event) => event.clientY >= 0 && event.clientY <= 52;
-          document.addEventListener('mousedown', function (event) {
-            if (event.button !== 0 || !inTitleBar(event) || isInteractive(event.target)) return;
-            if (event.detail === 2) handler.postMessage({ method: 'titlebarDoubleClick', args: [] });
-            else handler.postMessage({ method: 'drag', args: [] });
-            event.preventDefault();
-            event.stopPropagation();
-          }, true);
-          document.addEventListener('dblclick', function (event) {
-            if (!inTitleBar(event) || isInteractive(event.target)) return;
-            handler.postMessage({ method: 'titlebarDoubleClick', args: [] });
-            event.preventDefault();
-            event.stopPropagation();
-          }, true);
-          if (location.pathname !== '/companion/app' && !location.pathname.startsWith('/companion/app/')) {
+          if (window.top !== window) return;
+          const isCompanion = location.origin === appOrigin &&
+            (location.pathname === '/companion/app' || location.pathname.startsWith('/companion/app/'));
+          const strip = isCompanion ? 52 : 28;
+          const handler = window.webkit && window.webkit.messageHandlers &&
+            window.webkit.messageHandlers.ollieTitlebar;
+          const interactive = [
+            'button', 'a', 'input', 'select', 'textarea', '[role="button"]', '[role="menu"]',
+            '[role="menuitem"]', '[role="dialog"]', '[contenteditable]', '[tabindex]', '[onclick]'
+          ].join(',');
+          let scheduled = false;
+          const post = function () {
+            if (!handler) return;
+            const rects = [];
+            document.querySelectorAll(interactive).forEach(function (element) {
+              const rect = element.getBoundingClientRect();
+              if (rect.width <= 0 || rect.height <= 0 || rect.bottom <= 0 || rect.top >= strip) return;
+              rects.push([
+                Math.round(rect.left * 10) / 10, Math.round(rect.top * 10) / 10,
+                Math.round(rect.width * 10) / 10, Math.round(rect.height * 10) / 10
+              ]);
+            });
+            handler.postMessage(rects);
+          };
+          const schedule = function () {
+            if (scheduled) return;
+            scheduled = true;
+            requestAnimationFrame(function () { scheduled = false; post(); });
+          };
+          window.addEventListener('resize', schedule);
+          document.addEventListener('scroll', schedule, true);
+          new MutationObserver(schedule).observe(document.documentElement,
+            { childList: true, subtree: true, attributes: true,
+              attributeFilter: ['style', 'class', 'hidden', 'aria-hidden'] });
+          if (window.ResizeObserver) new ResizeObserver(schedule).observe(document.documentElement);
+          document.addEventListener('DOMContentLoaded', schedule);
+          if (!isCompanion) {
             const apply = function () {
               if (!document.documentElement) return;
               document.documentElement.style.setProperty('transform', 'translateY(28px)', 'important');
@@ -277,12 +313,13 @@ final class CompanionWindowController: NSWindowController, WKNavigationDelegate,
             apply();
             if (!document.documentElement) document.addEventListener('DOMContentLoaded', apply, { once: true });
           }
+          schedule();
         })();
         """
         userContentController.removeAllUserScripts()
         userContentController.addUserScript(WKUserScript(source: source, injectionTime: .atDocumentStart,
                                                          forMainFrameOnly: true))
-        userContentController.addUserScript(WKUserScript(source: dragSource, injectionTime: .atDocumentStart,
+        userContentController.addUserScript(WKUserScript(source: titlebarSource, injectionTime: .atDocumentStart,
                                                          forMainFrameOnly: true))
         userContentController.addUserScript(WKUserScript(source: Self.passkeyHintSource,
                                                          injectionTime: .atDocumentStart,
@@ -295,8 +332,17 @@ final class CompanionWindowController: NSWindowController, WKNavigationDelegate,
 
     func userContentController(_ userContentController: WKUserContentController,
                                didReceive message: WKScriptMessage) {
-        guard message.name == "ollieAuthHint", message.frameInfo.isMainFrame else { return }
-        showPasskeyHint()
+        guard message.frameInfo.isMainFrame else { return }
+        if message.name == "ollieAuthHint" {
+            showPasskeyHint()
+            return
+        }
+        guard message.name == "ollieTitlebar", let rows = message.body as? [[NSNumber]] else { return }
+        titlebarRects = rows.compactMap { row in
+            guard row.count == 4 else { return nil }
+            return CGRect(x: row[0].doubleValue, y: row[1].doubleValue,
+                          width: row[2].doubleValue, height: row[3].doubleValue)
+        }
     }
 
     private func showPasskeyHint() {
@@ -314,6 +360,7 @@ final class CompanionWindowController: NSWindowController, WKNavigationDelegate,
 
     func webView(_ webView: WKWebView, didCommit navigation: WKNavigation!) {
         passkeyHintShown = false
+        titlebarRects = []
     }
 
     func userContentController(_ userContentController: WKUserContentController,
@@ -334,12 +381,6 @@ final class CompanionWindowController: NSWindowController, WKNavigationDelegate,
         }
         let call = CompanionBridge.validate(method: method, arguments: arguments)
         switch call {
-        case .drag:
-            performWindowDrag()
-            replyHandler(true, nil)
-        case .titlebarDoubleClick:
-            performTitlebarDoubleClick()
-            replyHandler(true, nil)
         case .unsupported:
             replyHandler(nil, "Unsupported Companion method")
         case .invalid:

@@ -73,13 +73,30 @@ struct CompanionBridgeShell: Equatable {
 
 enum CompanionDragHitTest {
     static let titleBarHeight: CGFloat = 52
+    static let insetTitleBarHeight: CGFloat = 28
 
-    static func shouldDrag(button: Int, y: CGFloat, interactive: Bool) -> Bool {
-        button == 0 && y >= 0 && y <= titleBarHeight && !interactive
+    enum DoubleClickAction: Equatable {
+        case zoom
+        case minimize
+        case none
     }
 
-    static func shouldDoubleClick(y: CGFloat, interactive: Bool) -> Bool {
-        y >= 0 && y <= titleBarHeight && !interactive
+    static func shouldDrag(point: CGPoint, in bounds: CGRect, strip: CGFloat,
+                           interactiveRects: [CGRect]) -> Bool {
+        let top = bounds.maxY - point.y
+        guard top >= 0, top <= strip else { return false }
+        return !interactiveRects.contains { rect in
+            point.x >= rect.minX && point.x <= rect.maxX
+                && top >= rect.minY && top <= rect.maxY
+        }
+    }
+
+    static func doubleClickAction(_ value: String?) -> DoubleClickAction {
+        switch value ?? "Maximize" {
+        case "Minimize": return .minimize
+        case "None": return .none
+        default: return .zoom
+        }
     }
 }
 
@@ -90,8 +107,6 @@ enum CompanionBridge {
         case setBadge(Int)
         case notify(String, String)
         case openExternal(URL)
-        case drag
-        case titlebarDoubleClick
         case unsupported
         case invalid
     }
@@ -124,10 +139,6 @@ enum CompanionBridge {
                   let url = URL(string: raw), url.scheme?.lowercased() == "https",
                   url.user == nil, url.password == nil else { return .invalid }
             return .openExternal(url)
-        case "drag":
-            return arguments.isEmpty ? .drag : .invalid
-        case "titlebarDoubleClick":
-            return arguments.isEmpty ? .titlebarDoubleClick : .invalid
         case "openSpace", "showSpace", "hideSpace", "closeSpace", "navigate":
             return .unsupported
         default:

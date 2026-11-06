@@ -111,6 +111,9 @@ final class PanelPositionTests: XCTestCase {
                        NSWindow.Level.normal.rawValue)
         XCTAssertGreaterThan(PanelLevel.level(isExpanded: false, showIn: .edge).rawValue,
                              NSWindow.Level.normal.rawValue)
+        let base: NSWindow.StyleMask = [.borderless, .nonactivatingPanel]
+        XCTAssertFalse(PanelLevel.styleMask(isExpanded: true, base: base).contains(.nonactivatingPanel))
+        XCTAssertTrue(PanelLevel.styleMask(isExpanded: false, base: base).contains(.nonactivatingPanel))
     }
 
 }

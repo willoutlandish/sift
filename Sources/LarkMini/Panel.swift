@@ -94,6 +94,13 @@ enum PanelLevel {
         if isExpanded { return .popUpMenu }
         return showIn.showsEdgeHead ? .floating : .normal
     }
+
+    static func styleMask(isExpanded: Bool, base: NSWindow.StyleMask) -> NSWindow.StyleMask {
+        var mask = base
+        if isExpanded { mask.remove(.nonactivatingPanel) }
+        else { mask.insert(.nonactivatingPanel) }
+        return mask
+    }
 }
 
 struct PanelContentHeightKey: PreferenceKey {
@@ -235,7 +242,9 @@ final class PanelController {
         }
         layout()
         if activate {
+            panel.orderFrontRegardless()
             NSApp.activate(ignoringOtherApps: true)
+            NSRunningApplication.current.activate(options: [.activateIgnoringOtherApps])
             panel.makeKeyAndOrderFront(nil)
         } else {
             panel.orderFront(nil)
@@ -330,6 +339,7 @@ final class PanelController {
             rect = PanelGeometry.rightEdge(size: NSSize(width: 72, height: 72), in: visible, margin: 10)
         }
         panel.hasShadow = store.isExpanded
+        panel.styleMask = PanelLevel.styleMask(isExpanded: store.isExpanded, base: panel.styleMask)
         panel.level = PanelLevel.level(isExpanded: store.isExpanded, showIn: store.settings.showIn)
         panel.setFrame(rect, display: true)
         resizeContent()
