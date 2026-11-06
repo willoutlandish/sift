@@ -156,9 +156,18 @@ final class CompanionTests: XCTestCase {
 
     @MainActor func testActivityOpenPathsUseAgentAndShopPages() {
         XCTAssertEqual(CompanionActivity.agentPagePath(resource: "shop/a", agent: "agent b"),
-                       "/companion/app/shop%2Fa/agents/agent%20b/home")
+                       "/companion/app/shop%2Fa/people/agent%20b?activityPanel=agent%20b")
         XCTAssertEqual(CompanionActivity.shopPagePath(resource: "shop/a"),
-                       "/companion/app/shop%2Fa/messages/management")
+                       "/companion/app/shop%2Fa/messages/management?activityPanel=ollie")
+    }
+
+    func testCompanionTargetKeepsActivityPanelQuery() throws {
+        let base = try XCTUnwrap(URL(string: "https://outlandishdigital.us"))
+        let target = try XCTUnwrap(CompanionConfig.targetURL(
+            base: base,
+            path: "/companion/app/shop/people/agent?activityPanel=agent"))
+        XCTAssertEqual(target.absoluteString,
+                       "https://outlandishdigital.us/companion/app/shop/people/agent?activityPanel=agent")
     }
 
     func testLarkPopupsAreOffByDefault() throws {

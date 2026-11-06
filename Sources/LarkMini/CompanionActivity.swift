@@ -351,11 +351,17 @@ final class CompanionActivity: ObservableObject {
     }
 
     static func agentPagePath(resource: String, agent: String) -> String {
-        "/companion/app/\(escape(resource))/agents/\(escape(agent))/home"
+        activityPath("/companion/app/\(escape(resource))/people/\(escape(agent))", panel: agent)
     }
 
     static func shopPagePath(resource: String) -> String {
-        "/companion/app/\(escape(resource))/messages/management"
+        activityPath("/companion/app/\(escape(resource))/messages/management", panel: "ollie")
+    }
+
+    private static func activityPath(_ path: String, panel: String) -> String {
+        var components = URLComponents(string: path)
+        components?.queryItems = [URLQueryItem(name: "activityPanel", value: panel)]
+        return components?.string ?? path
     }
 
     private static func escape(_ value: String) -> String {
