@@ -15,12 +15,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var hotKey: GlobalHotKey?
     private var editMonitor: Any?
     private var keyMonitor: Any?
-    private var companionStatusObserver: NSObjectProtocol?
-    private var companionOpenObserver: NSObjectProtocol?
-    private var companionPaceObserver: NSObjectProtocol?
-    private var companionDragMapObserver: NSObjectProtocol?
-    private var settingsObserver: NSObjectProtocol?
-    private var panelSettingsObserver: NSObjectProtocol?
+    private let panelSettingsBag = QueryObserverBag()
+    private var queryActivity: NSObjectProtocol?
     private var badgeWatch: AnyCancellable?
     private var companionProbes: [CompanionSignInProbe] = []
     private let companionStatusInstance = UUID().uuidString
@@ -70,43 +66,30 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
         }
         Task { await Notifications.shared.refresh(request: Notifications.shared.enabled) }
-        companionStatusObserver = DistributedNotificationCenter.default().addObserver(
-            forName: .companionStatusRequest, object: nil, queue: .main
-        ) { [weak self] note in
-            MainActor.assumeIsolated { self?.answerCompanionStatus(note) }
-        }
-        companionOpenObserver = DistributedNotificationCenter.default().addObserver(
-            forName: .companionOpenRequest, object: nil, queue: .main
-        ) { [weak self] note in
-            MainActor.assumeIsolated { self?.answerCompanionOpen(note) }
-        }
-        companionPaceObserver = DistributedNotificationCenter.default().addObserver(
-            forName: .companionPaceRequest, object: nil, queue: .main
-        ) { [weak self] note in
-            MainActor.assumeIsolated { self?.answerCompanionPace(note) }
-        }
-        companionDragMapObserver = DistributedNotificationCenter.default().addObserver(
-            forName: .companionDragMapRequest, object: nil, queue: .main
-        ) { [weak self] note in
-            MainActor.assumeIsolated { self?.answerCompanionDragMap(note) }
-        }
+        let queryCenter = DistributedNotificationCenter.default()
+        queryCenter.addObserver(self, selector: #selector(companionStatusNote(_:)),
+                                name: .companionStatusRequest, object: nil,
+                                suspensionBehavior: .deliverImmediately)
+        queryCenter.addObserver(self, selector: #selector(companionOpenNote(_:)),
+                                name: .companionOpenRequest, object: nil,
+                                suspensionBehavior: .deliverImmediately)
+        queryCenter.addObserver(self, selector: #selector(companionPaceNote(_:)),
+                                name: .companionPaceRequest, object: nil,
+                                suspensionBehavior: .deliverImmediately)
+        queryCenter.addObserver(self, selector: #selector(companionDragMapNote(_:)),
+                                name: .companionDragMapRequest, object: nil,
+                                suspensionBehavior: .deliverImmediately)
+        queryCenter.addObserver(self, selector: #selector(settingsNote(_:)),
+                                name: .appSettingsChanged, object: nil,
+                                suspensionBehavior: .deliverImmediately)
+        queryActivity = ProcessInfo.processInfo.beginActivity(
+            options: [.userInitiated], reason: "Answer local Ollie CLI queries")
         installEditMenu()
         installKeyMonitor()
         panelController.menuBarAnchor = { [weak self] in self?.statusItemAnchor() }
         OllieBadge.onSet = { [weak self] _, _ in self?.refreshStatusBadge() }
-        panelSettingsObserver = NotificationCenter.default.addObserver(
-            forName: .panelSettingsChanged, object: nil, queue: .main
-        ) { [weak self] _ in
+        panelSettingsBag.observe(.panelSettingsChanged) { [weak self] _ in
             MainActor.assumeIsolated { self?.applyShowInMode() }
-        }
-        settingsObserver = DistributedNotificationCenter.default().addObserver(
-            forName: .appSettingsChanged, object: nil, queue: .main
-        ) { [weak self] note in
-            guard note.userInfo?["home"] as? String == AppPaths.supportDirectory.path else { return }
-            MainActor.assumeIsolated {
-                self?.store.reloadState()
-                self?.applyShowInMode()
-            }
         }
         applyShowInMode()
         let signedIn: Bool
@@ -158,23 +141,40 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationWillTerminate(_ notification: Notification) {
         if let outsideMonitor { NSEvent.removeMonitor(outsideMonitor) }
-        if let settingsObserver {
-            DistributedNotificationCenter.default().removeObserver(settingsObserver)
+        if let queryActivity { ProcessInfo.processInfo.endActivity(queryActivity) }
+        let queryCenter = DistributedNotificationCenter.default()
+        for name in [Notification.Name.companionStatusRequest, .companionOpenRequest,
+                     .companionPaceRequest, .companionDragMapRequest, .appSettingsChanged] {
+            queryCenter.removeObserver(self, name: name, object: nil)
         }
-        if let panelSettingsObserver {
-            NotificationCenter.default.removeObserver(panelSettingsObserver)
-        }
-        if let companionStatusObserver {
-            DistributedNotificationCenter.default().removeObserver(companionStatusObserver)
-        }
-        if let companionOpenObserver {
-            DistributedNotificationCenter.default().removeObserver(companionOpenObserver)
-        }
-        if let companionPaceObserver {
-            DistributedNotificationCenter.default().removeObserver(companionPaceObserver)
-        }
-        if let companionDragMapObserver {
-            DistributedNotificationCenter.default().removeObserver(companionDragMapObserver)
+    }
+
+    @objc nonisolated private func companionStatusNote(_ note: Notification) {
+        AppQueryLog.record("status")
+        Task { @MainActor in self.answerCompanionStatus(note) }
+    }
+
+    @objc nonisolated private func companionOpenNote(_ note: Notification) {
+        AppQueryLog.record("open")
+        Task { @MainActor in self.answerCompanionOpen(note) }
+    }
+
+    @objc nonisolated private func companionPaceNote(_ note: Notification) {
+        AppQueryLog.record("pace")
+        Task { @MainActor in self.answerCompanionPace(note) }
+    }
+
+    @objc nonisolated private func companionDragMapNote(_ note: Notification) {
+        AppQueryLog.record("drag-map")
+        Task { @MainActor in self.answerCompanionDragMap(note) }
+    }
+
+    @objc nonisolated private func settingsNote(_ note: Notification) {
+        AppQueryLog.record("settings")
+        Task { @MainActor in
+            guard note.userInfo?["home"] as? String == AppPaths.supportDirectory.path else { return }
+            self.store.reloadState()
+            self.applyShowInMode()
         }
     }
 

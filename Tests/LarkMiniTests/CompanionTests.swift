@@ -564,4 +564,16 @@ final class CompanionTests: XCTestCase {
         store.unmute(chat)
     }
 
+
+    func testObserverBagRetainsRegistrationBeyondTheCreatingScope() {
+        let center = NotificationCenter()
+        let bag = QueryObserverBag(center: center)
+        var hits = 0
+        do {
+            bag.observe(Notification.Name("ollie-test-query")) { _ in hits += 1 }
+        }
+        center.post(name: Notification.Name("ollie-test-query"), object: nil)
+        XCTAssertEqual(hits, 1)
+    }
+
 }
