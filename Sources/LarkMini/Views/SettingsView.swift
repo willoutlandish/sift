@@ -190,14 +190,15 @@ struct SettingsView: View {
     private var locationSection: some View {
         VStack(alignment: .leading, spacing: 8) {
             sectionTitle("Show Ollie in")
-            Toggle("Show in Dock", isOn: Binding(get: { store.settings.showInDock },
-                set: { value in store.updateSettings { $0.showInDock = value } }))
-                .toggleStyle(.switch).controlSize(.small)
             ForEach(ShowIn.allCases) { option in
                 locationRow(option)
             }
             Text("Menu bar only hides the floating edge head. The menu bar duck opens the panel under its icon.")
                 .font(.system(size: 11)).foregroundStyle(SiftStyle.secondary)
+            Divider().padding(.vertical, 4)
+            Toggle("Show in Dock", isOn: Binding(get: { store.settings.showInDock },
+                set: { value in store.updateSettings { $0.showInDock = value } }))
+                .toggleStyle(.switch).controlSize(.small)
         }
     }
 
