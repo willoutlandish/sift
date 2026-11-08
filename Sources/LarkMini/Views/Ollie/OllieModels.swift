@@ -281,6 +281,14 @@ struct OllieApprovalBatch: Identifiable, Equatable {
     let items: [CompanionTodoItem]
     var id: String { "\(source):\(kind)" }
     var count: Int { items.count }
+    var clickPath: String {
+        Self.clickPath(resources: items.map(\.resource), kind: kind)
+    }
+    static func clickPath(resources: [String], kind: String) -> String {
+        let shops = Set(resources.filter { !$0.isEmpty })
+        let path = CompanionApprovals.clickPath(resource: shops.count == 1 ? shops.first : nil)
+        return shops.count == 1 && ["buyer_reply", "buyer_reply_needed"].contains(kind) ? path + "?type=buyer_reply" : path
+    }
 }
 
 struct OllieApprovalsModel: Equatable {

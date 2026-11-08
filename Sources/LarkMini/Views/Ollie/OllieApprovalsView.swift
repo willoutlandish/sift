@@ -180,7 +180,7 @@ struct OllieApprovalsView: View {
                 .foregroundStyle(OllieStyle.text)
             tag(batch.items.first)
             Spacer(minLength: 0)
-            Button("Review all ›") { store.openCompanion(path: "/companion/app/approvals") }
+            Button("Review all ›") { store.openCompanion(path: batch.clickPath) }
                 .buttonStyle(.plain).font(.system(size: 12, weight: .semibold))
                 .foregroundStyle(OllieStyle.lime)
         }
