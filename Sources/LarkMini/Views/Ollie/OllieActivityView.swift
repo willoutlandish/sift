@@ -21,7 +21,7 @@ struct OllieActivityView: View {
         VStack(alignment: .leading, spacing: 6) {
             HStack {
                 Button { onBack() } label: {
-                    Text("‹ Today").font(.system(size: 13)).foregroundStyle(OllieStyle.lime)
+                    Text("‹ Today").accessibilityLabel("Today").font(.system(size: 13)).foregroundStyle(OllieStyle.lime)
                 }
                 .buttonStyle(.plain)
                 Spacer(minLength: 0)

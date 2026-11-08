@@ -100,7 +100,10 @@ struct CollapsedBubble: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .trailing)
         .help(store.attentionSummary.map { "Control · " + $0 + " · Click to open" } ?? "Open Ollie (⌥Space)")
-        .accessibilityLabel("Open Ollie, \(store.unreadCount) unread chats" + (store.attentionSummary.map { ", Control " + $0 } ?? ""))
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Open Ollie")
+        .accessibilityAddTraits(.isButton)
+        .accessibilityAction { NotificationCenter.default.post(name: .expandPanel, object: nil) }
     }
 }
 

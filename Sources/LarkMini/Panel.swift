@@ -45,6 +45,19 @@ final class BubbleClickView: NSView {
     var onMove: ((CGPoint) -> Void)?
     var onMoveEnded: (() -> Void)?
     private var drag = PanelPointerDrag()
+    override func isAccessibilityElement() -> Bool { !isHidden }
+    override func accessibilityRole() -> NSAccessibility.Role? { .button }
+    override func accessibilityLabel() -> String? { "Open Ollie" }
+    override func accessibilityActionNames() -> [NSAccessibility.Action] { [.press] }
+    override func accessibilityPerformAction(_ action: NSAccessibility.Action) {
+        if action == .press { _ = accessibilityPerformPress() }
+        else { super.accessibilityPerformAction(action) }
+    }
+    override func accessibilityPerformPress() -> Bool {
+        guard let onTap else { return false }
+        onTap()
+        return true
+    }
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 
     override func mouseDown(with event: NSEvent) {

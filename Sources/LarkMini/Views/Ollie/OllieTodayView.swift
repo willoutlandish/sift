@@ -219,6 +219,9 @@ struct OllieTodayView: View {
         .overlay(RoundedRectangle(cornerRadius: OllieStyle.cardRadius).strokeBorder(OllieStyle.lime.opacity(0.35)))
         .contentShape(RoundedRectangle(cornerRadius: OllieStyle.cardRadius))
         .onTapGesture { store.openCompanion(path: "/companion/app") }
+        .accessibilityAddTraits(.isButton)
+        .accessibilityLabel(progress.label)
+        .accessibilityAction { store.openCompanion(path: "/companion/app") }
     }
 
     private func actionButton(title: String, value: String, valueColor: Color,
