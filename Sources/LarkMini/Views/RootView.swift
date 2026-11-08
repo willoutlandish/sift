@@ -78,13 +78,7 @@ struct CollapsedBubble: View {
                         .opacity(gaze.proximity)
                 )
                 .overlay(alignment: .topTrailing) {
-                    if store.needsYouUnseen {
-                        EmptyView()
-                    } else if store.controlAttention != nil {
-                        UnreadDot(size: 7)
-                            .padding(2).background(SiftStyle.rail, in: Circle())
-                            .offset(x: 2, y: -2)
-                    } else if approvals.approvalBadge > 0 {
+                    if approvals.approvalBadge > 0 {
                         Text("\(approvals.approvalBadge)")
                             .font(.system(size: 10, weight: .semibold))
                             .foregroundStyle(.white)
@@ -93,6 +87,8 @@ struct CollapsedBubble: View {
                             .background(Capsule().fill(Color(red: 1, green: 0.27, blue: 0.23)))
                             .overlay(Capsule().stroke(Color.black.opacity(0.25), lineWidth: 1))
                             .offset(x: 4, y: -4)
+                    } else if store.controlAttention != nil {
+                        UnreadDot(size: 7).padding(2).background(SiftStyle.rail, in: Circle()).offset(x: 2, y: -2)
                     }
                 }
                 .padding(.trailing, 16)
