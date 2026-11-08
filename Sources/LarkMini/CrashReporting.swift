@@ -33,6 +33,18 @@ enum CrashReporting {
         let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "unknown"
         clean.releaseName = AppIdentity.bundleIdentifier + "@" + version
         clean.tags = ["app_version": version, "app_identity": AppIdentity.bundleIdentifier]
+        clean.debugMeta = event.debugMeta?.compactMap { image in
+            guard let raw = image.debugID ?? image.uuid, let id = UUID(uuidString: raw),
+                  let loadAddress = address(image.imageAddress) else { return nil }
+            let safe = DebugMeta()
+            safe.type = "macho"
+            safe.debugID = id.uuidString
+            safe.imageAddress = loadAddress
+            safe.imageVmAddress = address(image.imageVmAddress)
+            if let size = image.imageSize, size.int64Value >= 0 { safe.imageSize = size }
+            // name and codeFile can contain user paths; never copy them.
+            return safe
+        }
         clean.exceptions = event.exceptions?.map { exception in
             let safe = Exception(value: "Native crash", type: "NativeCrash")
             if let stack = exception.stacktrace {

@@ -101,49 +101,6 @@ final class CompanionWindowController: NSWindowController, WKNavigationDelegate,
         ]
     }
 
-    // Observe the existing Companion dialog and fetch/XHR lifecycle. No payload,
-    // URL, text, or user input crosses this guard; it only delays a relaunch.
-    private static let updateGuardSource = """
-    (() => {
-      let pending = 0, previous;
-      const send = () => {
-        const dialog = [...document.querySelectorAll('[role="dialog"], [role="alertdialog"], dialog[open]')]
-          .some(el => el.getClientRects().length > 0);
-        const busy = pending > 0 || dialog;
-        if (busy !== previous) {
-          previous = busy;
-          window.webkit.messageHandlers.ollieUpdateGuard.postMessage(busy);
-        }
-      };
-      const writes = method => !['GET', 'HEAD', 'OPTIONS'].includes(String(method || 'GET').toUpperCase());
-      const fetchOriginal = window.fetch;
-      window.fetch = async function(input, init) {
-        const write = writes(init?.method || input?.method);
-        if (write) { pending++; send(); }
-        try { return await fetchOriginal.apply(this, arguments); }
-        finally { if (write) { pending--; send(); } }
-      };
-      const open = XMLHttpRequest.prototype.open, transmit = XMLHttpRequest.prototype.send;
-      const mutating = new WeakSet();
-      XMLHttpRequest.prototype.open = function(method) {
-        if (writes(method)) mutating.add(this); else mutating.delete(this);
-        return open.apply(this, arguments);
-      };
-      XMLHttpRequest.prototype.send = function() {
-        const write = mutating.has(this);
-        let ended = false;
-        const end = () => { if (!ended && write) { ended = true; pending--; send(); } };
-        if (write) { pending++; send(); this.addEventListener('loadend', end, {once: true}); }
-        try { return transmit.apply(this, arguments); } catch (error) { end(); throw error; }
-      };
-      document.addEventListener('DOMContentLoaded', () => {
-        new MutationObserver(send).observe(document.documentElement,
-          {childList: true, subtree: true, attributes: true});
-        send();
-      }, {once: true});
-    })();
-    """
-
     private static let passkeyHintSource = """
     (function () {
       if (window.__olliePasskeyHint) return;
@@ -238,8 +195,10 @@ final class CompanionWindowController: NSWindowController, WKNavigationDelegate,
         fatalError("init(coder:) has not been implemented")
     }
 
-    func open(baseURL: URL, path: String?, allowAnyPath: Bool = false, activate: Bool = true) {
-        let target = (allowAnyPath ? CompanionConfig.cliTargetURL(base: baseURL, path: path) : nil)
+    var currentURL: URL? { webView.url }
+
+    func open(baseURL: URL, path: String?, allowAnyPath: Bool = false, activate: Bool = true, restoringURL: URL? = nil) {
+        let target = CompanionRestore.url(restoringURL?.absoluteString, base: baseURL) ?? (allowAnyPath ? CompanionConfig.cliTargetURL(base: baseURL, path: path) : nil)
             ?? CompanionConfig.targetURL(base: baseURL, path: path)
             ?? baseURL
         self.baseURL = baseURL
@@ -401,7 +360,7 @@ final class CompanionWindowController: NSWindowController, WKNavigationDelegate,
         })();
         """
         userContentController.removeAllUserScripts()
-        userContentController.addUserScript(WKUserScript(source: Self.updateGuardSource,
+        userContentController.addUserScript(WKUserScript(source: CompanionUpdateGuard.source,
                                                          injectionTime: .atDocumentStart, forMainFrameOnly: true))
         userContentController.addUserScript(WKUserScript(source: source, injectionTime: .atDocumentStart,
                                                          forMainFrameOnly: true))

@@ -464,3 +464,14 @@ enum CompanionWebConfiguration {
         return configuration
     }
 }
+
+// Restore the full same-origin URL (including query and fragment) without
+// routing it through the Companion-only path fallback or permitting outsiders.
+enum CompanionRestore {
+    static func url(_ saved: String?, base: URL) -> URL? {
+        guard let saved, let url = URL(string: saved), url.user == nil, url.password == nil,
+              CompanionConfig.originMatches(scheme: url.scheme ?? "", host: url.host ?? "",
+                                            port: url.port ?? 0, base: base) else { return nil }
+        return url
+    }
+}

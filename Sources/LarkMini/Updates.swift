@@ -25,8 +25,9 @@ enum RequiredUpdateGate {
     struct Release { let version: String; let critical: Bool }
     static func requiredVersion(current: String, releases: [Release]) -> String? {
         let comparator = SUStandardVersionComparator.default
-        guard let newest = releases.max(by: { comparator.compareVersion($0.version, toVersion: $1.version) == .orderedAscending }),
-              newest.critical, comparator.compareVersion(current, toVersion: newest.version) == .orderedAscending else { return nil }
+        guard releases.contains(where: { $0.critical && comparator.compareVersion(current, toVersion: $0.version) == .orderedAscending }),
+              let newest = releases.max(by: { comparator.compareVersion($0.version, toVersion: $1.version) == .orderedAscending }),
+              comparator.compareVersion(current, toVersion: newest.version) == .orderedAscending else { return nil }
         return newest.version
     }
 }
@@ -35,6 +36,7 @@ enum RequiredUpdateGate {
 final class OllieUpdates: NSObject, ObservableObject, SPUUpdaterDelegate {
     static let shared = OllieUpdates()
     @Published private(set) var requiredVersion: String?
+    @Published private(set) var blockedReason: String?
     private var controller: SPUStandardUpdaterController?
     private var installNow: (() -> Void)?
     private let current = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "0"
@@ -115,10 +117,19 @@ final class OllieUpdates: NSObject, ObservableObject, SPUUpdaterDelegate {
         return true
     }
 
+    static func refusal(companionBusy: Bool, decisionInFlight: Bool, confirmationOpen: Bool) -> String? {
+        if companionBusy { return "Finish or close what you're editing in Companion first" }
+        if decisionInFlight { return "Wait for your decision to finish before updating" }
+        if confirmationOpen { return "Finish or close the open confirmation first" }
+        return nil
+    }
+
     func updateNow() {
         // The required-update sheet itself is allowed here; decision confirmations
         // and network writes still prevent even an explicit relaunch.
-        guard confirmations.isEmpty, decisions == 0, !companionBusy, NSApp.modalWindow == nil else { return }
+        blockedReason = Self.refusal(companionBusy: companionBusy, decisionInFlight: decisions > 0,
+                                     confirmationOpen: !confirmations.isEmpty || NSApp.modalWindow != nil)
+        guard blockedReason == nil else { return }
         if let install = installNow {
             installNow = nil
             beforeInstall()
@@ -129,6 +140,7 @@ final class OllieUpdates: NSObject, ObservableObject, SPUUpdaterDelegate {
 }
 
 struct UpdateRequiredView: View {
+    @ObservedObject private var updates = OllieUpdates.shared
     let update: () -> Void
     let companion: () -> Void
     var body: some View {
@@ -136,6 +148,9 @@ struct UpdateRequiredView: View {
             Text("Update required").font(.title2.bold())
             Text("Install the latest Ollie update to continue using this panel.")
                 .multilineTextAlignment(.center)
+            if let reason = updates.blockedReason {
+                Text(reason).foregroundStyle(.secondary).multilineTextAlignment(.center)
+            }
             Button("Update now", action: update).buttonStyle(.borderedProminent)
             Button("Open Companion", action: companion)
         }

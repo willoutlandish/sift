@@ -141,6 +141,15 @@ struct CompanionDecisionTarget: Equatable {
     let sendVersion: String?
 }
 
+struct CompanionConfirmationTarget: Equatable {
+    let id: String
+    let version: String?
+    let sendVersion: String?
+    let draft: String?
+    let recipients: [String]
+    let answers: [String]
+}
+
 struct CompanionTodoItem: Identifiable, Equatable {
     let id: String
     let label: String
@@ -169,6 +178,11 @@ struct CompanionTodoItem: Identifiable, Equatable {
     let itemLink: String?
     let shopName: String
     let resource: String
+
+    var confirmationTarget: CompanionConfirmationTarget {
+        .init(id: id, version: decision?.version, sendVersion: decision?.sendVersion,
+              draft: payloadPreview, recipients: recipients, answers: answers)
+    }
 
     var categoryKey: String {
         let raw = kind.isEmpty ? source : kind

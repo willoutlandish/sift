@@ -59,6 +59,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         OllieUpdates.shared.panelOpen = { [weak self] in self?.store.isExpanded ?? true }
         OllieUpdates.shared.beforeInstall = {
             UserDefaults.standard.set(true, forKey: "OllieUpdatedRelaunch")
+            UserDefaults.standard.set(CompanionWindowController.shared.currentURL?.absoluteString,
+                                      forKey: "OllieRestoreCompanionURL")
             UserDefaults.standard.set(CompanionWindowController.shared.window?.isVisible == true,
                                       forKey: "OllieRestoreCompanion")
         }
@@ -124,9 +126,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             UserDefaults.standard.removeObject(forKey: "OllieUpdatedRelaunch")
             if UserDefaults.standard.bool(forKey: "OllieRestoreCompanion"),
                let raw = store.companionURL, let base = CompanionConfig.validatedURL(raw) {
-                CompanionWindowController.shared.open(baseURL: base, path: nil, activate: false)
+                let saved = UserDefaults.standard.string(forKey: "OllieRestoreCompanionURL")
+                CompanionWindowController.shared.open(baseURL: base, path: nil, activate: false,
+                    restoringURL: CompanionRestore.url(saved, base: base))
             }
             UserDefaults.standard.removeObject(forKey: "OllieRestoreCompanion")
+            UserDefaults.standard.removeObject(forKey: "OllieRestoreCompanionURL")
         }
         if !backgroundCheck && store.settings.showIn.showsEdgeHead {
             panelController.show()

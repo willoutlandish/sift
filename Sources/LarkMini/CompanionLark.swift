@@ -42,12 +42,25 @@ enum CompanionLarkRead {
     }
 }
 
+enum CompanionLarkState: Equatable {
+    case loading, signedOut, unavailable, ready([CompanionLarkChat])
+
+    static func from(_ reply: CompanionFetchReply?, sessionMissing: Bool = false) -> Self {
+        if sessionMissing || reply?.status == 401 || reply?.status == 419 ||
+            (reply.flatMap { URL(string: $0.url) }.map(CompanionSignInProbe.isSignIn) ?? false) {
+            return .signedOut
+        }
+        guard let chats = CompanionLarkRead.parse(reply) else { return .unavailable }
+        return .ready(chats)
+    }
+}
+
 struct CompanionLarkView: View {
     @EnvironmentObject var store: Store
+    @ObservedObject private var monitor = CompanionApprovalsMonitor.shared
     @State private var query = ""
-    @State private var chats: [CompanionLarkChat] = []
-    @State private var unavailable = false
-    @State private var loading = false
+    @State private var state = CompanionLarkState.loading
+    @State private var inFlight = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -55,13 +68,17 @@ struct CompanionLarkView: View {
             Text("Recent activity · Read-only").foregroundStyle(.secondary)
             HStack {
                 TextField("Find a chat (at least 2 characters)", text: $query).onSubmit { Task { await load() } }
-                Button("Search") { Task { await load() } }.disabled(loading || (query.count == 1))
+                Button("Search") { Task { await load() } }.disabled(inFlight || (query.count == 1))
             }
-            if loading { ProgressView().controlSize(.small) }
-            if unavailable {
-                Text("Lark isn't available for your account")
+            switch state {
+            case .loading:
+                ProgressView("Loading Lark…").controlSize(.small)
+            case .signedOut:
+                Text("Sign in to Companion to see Lark here")
                 Button("Sign in to Companion") { store.openCompanionSignIn() }
-            } else {
+            case .unavailable:
+                Text("Lark isn't available for your account")
+            case .ready(let chats):
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: 12) {
                         ForEach(chats) { chat in
@@ -75,22 +92,26 @@ struct CompanionLarkView: View {
                                 }
                             }
                         }
-                        if chats.isEmpty && !loading { Text("No recent chats to show").foregroundStyle(.secondary) }
+                        if chats.isEmpty { Text("No recent chats to show").foregroundStyle(.secondary) }
                     }
                 }
             }
-            Button("Refresh") { Task { await load() } }.disabled(loading)
+            Button("Refresh") { Task { await load() } }.disabled(inFlight)
         }
         .padding(16).task { await load() }
+        .onChange(of: monitor.state == .signedOut) { signedOut in
+            if signedOut { state = .signedOut }
+            else { Task { await load() } }
+        }
     }
 
     @MainActor private func load() async {
-        guard !loading, let path = CompanionLarkRead.path(query: query) else { return }
-        loading = true
-        defer { loading = false }
-        let reply = await CompanionApprovalsMonitor.shared.fetch(path: path)
-        let result = CompanionLarkRead.parse(reply)
-        unavailable = result == nil
-        chats = result ?? []
+        guard !inFlight, let path = CompanionLarkRead.path(query: query) else { return }
+        guard monitor.state != .signedOut else { state = .signedOut; return }
+        inFlight = true
+        state = .loading
+        defer { inFlight = false }
+        let reply = await monitor.fetch(path: path)
+        state = .from(reply, sessionMissing: monitor.state == .signedOut)
     }
 }

@@ -217,7 +217,7 @@ private struct OllieApprovalItemRow: View {
     let readOnly: Bool
     let onChanged: (String) -> Void
 
-    @State private var confirming: (item: CompanionTodoItem, answer: String)?
+    @State private var confirming: (target: CompanionConfirmationTarget, answer: String)?
     @State private var confirmationID = UUID()
     @State private var busy = false
     @State private var message: String?
@@ -258,12 +258,12 @@ private struct OllieApprovalItemRow: View {
             } else if item.canAnswer {
                 HStack(spacing: 8) {
                     if let answer = item.recommendationAnswer {
-                        Button("Take recommendation") { confirming = (item, answer) }
+                        Button("Take recommendation") { confirming = (item.confirmationTarget, answer) }
                             .buttonStyle(.plain).disabled(busy)
                     }
                     ForEach(item.answers.filter { $0 != item.recommendationAnswer }, id: \.self) { answer in
                         if (answer == "approve" && item.canApprove) || answer == "skip" {
-                            Button(label(answer)) { confirming = (item, answer) }
+                            Button(label(answer)) { confirming = (item.confirmationTarget, answer) }
                                 .buttonStyle(.plain)
                                 .font(.system(size: 11.5, weight: .medium))
                                 .foregroundStyle(answer == "approve" ? OllieStyle.lime : OllieStyle.dim)
@@ -285,7 +285,7 @@ private struct OllieApprovalItemRow: View {
                     .buttonStyle(.plain).font(.system(size: 11.5, weight: .medium))
                     .foregroundStyle(OllieStyle.dim)
             }
-            if let confirming, confirming.item == item, !readOnly {
+            if let confirming, confirming.target == item.confirmationTarget, !readOnly {
                 confirmBlock(confirming.answer)
             }
             if let message {
@@ -304,7 +304,14 @@ private struct OllieApprovalItemRow: View {
         .onChange(of: confirming != nil) { open in
             OllieUpdates.shared.confirmation(confirmationID, open: open)
         }
-        .onDisappear { OllieUpdates.shared.confirmation(confirmationID, open: false) }
+        .onChange(of: item.confirmationTarget) { _ in
+            confirming = nil
+            OllieUpdates.shared.confirmation(confirmationID, open: false)
+        }
+        .onDisappear {
+            confirming = nil
+            OllieUpdates.shared.confirmation(confirmationID, open: false)
+        }
         .onReceive(OllieUpdates.shared.$requiredVersion) { version in
             // A critical gate disables this row. Invalidate its unsubmitted
             // confirmation so Update now cannot be trapped behind a disabled Cancel.
@@ -358,7 +365,7 @@ private struct OllieApprovalItemRow: View {
     }
 
     private func submit(_ answer: String) {
-        guard confirming?.item == item, confirming?.answer == answer else {
+        guard confirming?.target == item.confirmationTarget, confirming?.answer == answer else {
             confirming = nil
             return
         }

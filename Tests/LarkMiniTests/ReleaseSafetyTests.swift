@@ -31,12 +31,13 @@ final class ReleaseSafetyTests: XCTestCase {
         }
     }
 
-    func testCriticalGateUsesNewestVersionAndSparkleOrdering() {
+    func testCriticalGateKeepsHistoricalCriticalRequirementAndSparkleOrdering() {
         typealias Release = RequiredUpdateGate.Release
         XCTAssertNil(RequiredUpdateGate.requiredVersion(current: "2", releases: []))
         XCTAssertNil(RequiredUpdateGate.requiredVersion(current: "2", releases: [Release(version: "2", critical: true)]))
         XCTAssertEqual(RequiredUpdateGate.requiredVersion(current: "2", releases: [Release(version: "10", critical: true), Release(version: "3", critical: false)]), "10")
-        XCTAssertNil(RequiredUpdateGate.requiredVersion(current: "2", releases: [Release(version: "3", critical: true), Release(version: "10", critical: false)]))
+        XCTAssertEqual(RequiredUpdateGate.requiredVersion(current: "2", releases: [Release(version: "3", critical: true), Release(version: "10", critical: false)]), "10")
+        XCTAssertNil(RequiredUpdateGate.requiredVersion(current: "3", releases: [Release(version: "3", critical: true), Release(version: "10", critical: false)]))
         XCTAssertNil(RequiredUpdateGate.requiredVersion(current: "11", releases: [Release(version: "10", critical: true)]))
     }
 
@@ -46,7 +47,26 @@ final class ReleaseSafetyTests: XCTestCase {
         event.extra = ["cookie": "private-cookie"]
         event.tags = ["url": "https://example.com/customer/123"]
         event.exceptions = [Exception(value: "private message", type: "private type")]
+        let image = DebugMeta()
+        image.debugID = "F8C93251-CECC-4C82-AEBC-FA5AC935D786"
+        image.type = "macho"
+        image.imageAddress = "0x1000"
+        image.imageVmAddress = "0x2000"
+        image.imageSize = 4096
+        image.codeFile = "/private/personal/customer.dylib"
+        image.name = "personal"
+        let invalid = DebugMeta()
+        invalid.debugID = "private content"
+        invalid.imageAddress = "0x1234"
+        event.debugMeta = [image, invalid]
         let safe = try XCTUnwrap(CrashReporting.sanitized(event))
+        XCTAssertEqual(safe.debugMeta?.count, 1)
+        XCTAssertEqual(safe.debugMeta?.first?.debugID, image.debugID)
+        XCTAssertEqual(safe.debugMeta?.first?.imageAddress, "0x1000")
+        XCTAssertEqual(safe.debugMeta?.first?.imageVmAddress, "0x2000")
+        XCTAssertEqual(safe.debugMeta?.first?.imageSize, 4096)
+        XCTAssertNil(safe.debugMeta?.first?.codeFile)
+        XCTAssertNil(safe.debugMeta?.first?.name)
         XCTAssertNil(safe.message)
         XCTAssertNil(safe.extra)
         XCTAssertNil(safe.request)
@@ -63,7 +83,7 @@ final class ReleaseSafetyTests: XCTestCase {
         let contents = fixture.appendingPathComponent("Contents")
         try FileManager.default.createDirectory(at: contents, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: fixture) }
-        let plist: [String: Any] = ["CFBundleIdentifier": "com.outlandish.ollie"]
+        let plist = try PropertyListSerialization.propertyList(from: Data(contentsOf: root.appendingPathComponent("Support/Info.plist")), format: nil)
         try PropertyListSerialization.data(fromPropertyList: plist, format: .xml, options: 0)
             .write(to: contents.appendingPathComponent("Info.plist"))
         func scan() throws -> Int32 {
