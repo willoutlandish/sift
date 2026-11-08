@@ -67,7 +67,7 @@ enum AskInbox {
                                question: question, recommendation: row["recommendation"] as? String ?? "", link: link)
             })
         default:
-            let reason = ControlError.message(reply["reason"])
+            let reason = reply["reason"].map(ControlError.message) ?? ""
             return .unavailable(reason.isEmpty ? "Control's asks are unavailable" : reason)
         }
     }
