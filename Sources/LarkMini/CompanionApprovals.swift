@@ -71,6 +71,36 @@ struct CompanionApprovalsList: Decodable {
     let counts: Counts?
 }
 
+// Mirrors companion-approvals/OneTapDecision.tsx and control-room/board.ts.
+enum CompanionApprovalEligibility {
+    static func recipientsOf(_ item: CompanionApprovalsList.Item) -> [String] {
+        (item.evidence ?? []).compactMap { fact in
+            guard ["Recipient", "To"].contains(fact.label ?? ""),
+                  let text = fact.text, !text.isEmpty else { return nil }
+            return text
+        }
+    }
+
+    static func draftText(_ item: CompanionApprovalsList.Item) -> String? {
+        item.evidence?.first { $0.label == "Message to send" }?.text
+    }
+
+    static func isSendItem(_ item: CompanionApprovalsList.Item) -> Bool {
+        ["send_approval", "creator_dm_reply"].contains(item.source ?? "")
+    }
+
+    static func cardAnswers(_ item: CompanionApprovalsList.Item) -> [String] {
+        let answers = item.answers ?? []
+        return recipientsOf(item).count > 1 ? answers.filter { $0 != "approve" } : answers
+    }
+
+    static func canApprove(_ item: CompanionApprovalsList.Item) -> Bool {
+        item.can_answer == true && cardAnswers(item).contains("approve") &&
+            (!isSendItem(item) || (!(item.send_version ?? "").isEmpty &&
+                !(draftText(item) ?? "").isEmpty && recipientsOf(item).count == 1))
+    }
+}
+
 struct CompanionDecisionTarget: Equatable {
     enum API: Equatable {
         case answers
@@ -97,6 +127,8 @@ struct CompanionTodoItem: Identifiable, Equatable {
     let answers: [String]
     let canAnswer: Bool
     let disabledReason: String?
+    let recipients: [String]
+    let canApprove: Bool
     let payloadPreview: String?
     let decision: CompanionDecisionTarget?
     let source: String
@@ -248,7 +280,7 @@ enum CompanionTodos {
                     let shopName = nonEmpty(item.shop?.name) ?? nonEmpty(shop.name)
                     let label = nonEmpty(item.agent?.label) ?? nonEmpty(service.label) ?? "An agent"
                     let title = nonEmpty(item.question) ?? nonEmpty(item.kind) ?? nonEmpty(item.source) ?? "Approval"
-                    let offered = item.answers ?? (item.can_decide == true ? ["approve", "skip"] : [])
+                    let offered = CompanionApprovalEligibility.cardAnswers(item)
                     let preview = nonEmpty(item.preview)
                         ?? nonEmpty(item.evidence?.first { $0.label == "Message to send" }?.text)
                         ?? nonEmpty(item.recommendation?.text)
@@ -270,6 +302,8 @@ enum CompanionTodos {
                         canAnswer: item.can_answer ?? item.can_decide ?? false,
                         disabledReason: item.content_clear == false
                             ? "This reply has nothing to send. Skip it or ask for a change." : nil,
+                        recipients: CompanionApprovalEligibility.recipientsOf(item),
+                        canApprove: CompanionApprovalEligibility.canApprove(item),
                         payloadPreview: preview,
                         decision: target,
                         source: item.source ?? "",
@@ -329,7 +363,8 @@ enum CompanionTodos {
 
 enum CompanionDecisionRequests {
     static func decisionRequest(item: CompanionTodoItem, answer: String) -> CompanionDecisionRequest? {
-        guard let target = item.decision, item.canAnswer else { return nil }
+        guard let target = item.decision, item.canAnswer, item.answers.contains(answer),
+              answer != "approve" || item.canApprove else { return nil }
         switch target.api {
         case .answers:
             let rows: [[String: Any]] = [[
@@ -358,21 +393,7 @@ enum CompanionDecisionRequests {
         }
     }
 
-    static func batchRequest(items: [CompanionTodoItem], answer: String) -> CompanionDecisionRequest? {
-        guard !items.isEmpty else { return nil }
-        var rows: [[String: Any]] = []
-        for item in items {
-            guard let target = item.decision, target.api == .answers, item.canAnswer else { return nil }
-            rows.append([
-                "id": target.id,
-                "version": target.version ?? NSNull(),
-                "send_version": target.sendVersion ?? NSNull()
-            ])
-        }
-        return CompanionDecisionRequest(
-            path: "/api/oo/approvals/answer",
-            body: ["items": rows, "answer": answer])
-    }
+
 }
 
 enum CompanionDecisionOutcomeParser {
@@ -413,23 +434,7 @@ enum CompanionDecisionOutcomeParser {
         }
     }
 
-    static func batchOutcome(itemIds: [String], answer: String, reply: CompanionFetchReply?) -> CompanionDecisionOutcome {
-        guard let reply else { return CompanionDecisionOutcome(message: "Couldn't reach Companion.", remove: false) }
-        guard reply.status == 200,
-              let data = reply.body.data(using: .utf8),
-              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let results = object["results"] as? [[String: Any]] else {
-            return CompanionDecisionOutcome(message: "Couldn't save those decisions.", remove: false)
-        }
-        let failures = results.filter { ($0["status"] as? String) != "ok" }
-        if !failures.isEmpty {
-            let saved = results.filter { ($0["status"] as? String) == "ok" }.count
-            return CompanionDecisionOutcome(message: "\(saved) of \(itemIds.count) saved", remove: false)
-        }
-        let count = itemIds.count
-        return CompanionDecisionOutcome(message: answer == "approve" ? "Approved \(count)" : "Declined \(count)",
-                                        remove: true)
-    }
+
 }
 
 @MainActor
@@ -448,16 +453,7 @@ final class CompanionApprovalsActions {
         return CompanionDecisionOutcomeParser.outcome(api: api, itemId: item.id, answer: answer, reply: reply)
     }
 
-    func submitBatch(items: [CompanionTodoItem], answer: String) async -> CompanionDecisionOutcome {
-        if CompanionApprovalsMonitor.shared.isReadOnly {
-            return CompanionDecisionOutcome(message: CompanionWriteGuard.refusal, remove: false)
-        }
-        guard let request = CompanionDecisionRequests.batchRequest(items: items, answer: answer) else {
-            return CompanionDecisionOutcome(message: "These items can't be answered here.", remove: false)
-        }
-        let reply = await CompanionApprovalsMonitor.shared.postJSON(path: request.path, body: request.body)
-        return CompanionDecisionOutcomeParser.batchOutcome(itemIds: items.map(\.id), answer: answer, reply: reply)
-    }
+
 }
 
 struct CompanionApprovalsSeenStore {

@@ -241,6 +241,12 @@ private struct OllieApprovalItemRow: View {
             }
             .font(.system(size: 11))
 
+            if let draft = item.payloadPreview {
+                Text(draft).font(.system(size: 12)).fixedSize(horizontal: false, vertical: true)
+            }
+            if !item.recipients.isEmpty {
+                Text("To: \(item.recipients.joined(separator: ", "))").font(.system(size: 11))
+            }
             if readOnly {
                 Button("Open in Companion") { store.openCompanion(path: item.clickPath) }
                     .buttonStyle(.plain).font(.system(size: 11.5, weight: .medium))
@@ -248,7 +254,7 @@ private struct OllieApprovalItemRow: View {
             } else if item.canAnswer {
                 HStack(spacing: 8) {
                     ForEach(item.answers, id: \.self) { answer in
-                        if answer == "approve" || answer == "skip" {
+                        if (answer == "approve" && item.canApprove) || answer == "skip" {
                             Button(label(answer)) { confirming = (item.id, answer) }
                                 .buttonStyle(.plain)
                                 .font(.system(size: 11.5, weight: .medium))

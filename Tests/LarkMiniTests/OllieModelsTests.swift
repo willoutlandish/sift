@@ -195,10 +195,7 @@ final class OllieModelsTests: XCTestCase {
         XCTAssertEqual(model.categories.map(\.label), ["Creator Sample", "Money"])
         let old = try XCTUnwrap(model.older.first)
         XCTAssertTrue(OllieApprovalsModel.isOverdue(old))
-        let batch = try XCTUnwrap(CompanionDecisionRequests.batchRequest(items: model.batches[0].items, answer: "approve"))
-        XCTAssertEqual(batch.path, "/api/oo/approvals/answer")
-        XCTAssertEqual((batch.body["items"] as? [[String: Any]])?.count, 2)
-        XCTAssertEqual(batch.body["answer"] as? String, "approve")
+
     }
 
     func testAllShopProgressWithNoElapsedMonthHasNoFakeTick() {
