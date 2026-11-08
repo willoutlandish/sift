@@ -77,7 +77,9 @@ final class ReleaseSafetyTests: XCTestCase {
         }
         try Data("certificate 1[field.1.2.840.113635.100.6.2.6]".utf8).write(to: contents.appendingPathComponent("fixture"))
         XCTAssertEqual(try scan(), 0)
-        for rejected in ["http://100.64.0.1:8090", "e2e-" + "local-test-secret", "app_secret=" + String(repeating: "X", count: 32), "access_token=" + String(repeating: "Y", count: 32)] {
+        let devInfo = try PropertyListSerialization.propertyList(from: Data(contentsOf: root.appendingPathComponent("Support/Dev.plist")), format: nil) as! [String: Any]
+        let developmentURL = try XCTUnwrap(devInfo["OllieDevelopmentURL"] as? String)
+        for rejected in [developmentURL, "e2e-" + "local-test-secret", "app_secret=" + String(repeating: "X", count: 32), "access_token=" + String(repeating: "Y", count: 32)] {
             try Data(rejected.utf8).write(to: contents.appendingPathComponent("fixture"))
             XCTAssertNotEqual(try scan(), 0)
         }
