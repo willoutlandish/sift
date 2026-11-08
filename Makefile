@@ -4,10 +4,14 @@ REAL_APP_NAME = Ollie
 BINARY = LarkMini
 DEV_APP = dist/$(DEV_APP_NAME).app
 REAL_APP = dist/$(REAL_APP_NAME).app
+ifeq ($(THROWAWAY),1)
+REAL_APP = dist/throwaway-release/Ollie.app
+THROWAWAY_ARG = --throwaway
+endif
 BIN = .build/apple/Products/Release/$(BINARY)
 APP = $(DEV_APP)
 
-.PHONY: build app real-app check-dev check-release release-internal run demo dmg clean icon install
+.PHONY: build app real-app check-dev check-release release-internal release-throwaway run demo dmg clean icon install
 
 build:
 	swift build -c release --arch arm64 --arch x86_64
@@ -36,7 +40,7 @@ real-app: build icon
 	rm -rf "$(REAL_APP)"
 	mkdir -p "$(REAL_APP)/Contents/MacOS" "$(REAL_APP)/Contents/Resources"
 	cp $(BIN) "$(REAL_APP)/Contents/MacOS/$(REAL_APP_NAME)"
-	python3 scripts/bundle-plist.py release "$(REAL_APP)/Contents/Info.plist" "$(VERSION)"
+	python3 scripts/bundle-plist.py release "$(REAL_APP)/Contents/Info.plist" "$(VERSION)" $(THROWAWAY_ARG)
 	@if [ -f Support/AppIcon.icns ]; then cp Support/AppIcon.icns "$(REAL_APP)/Contents/Resources/AppIcon.icns"; fi
 	@if [ -f Support/OllieHead.png ]; then cp Support/OllieHead.png "$(REAL_APP)/Contents/Resources/OllieHead.png"; fi
 	mkdir -p "$(REAL_APP)/Contents/Frameworks"
@@ -72,7 +76,10 @@ clean:
 	rm -rf dist Support/AppIcon.iconset
 
 check-release: real-app
-	python3 scripts/check-release.py "$(REAL_APP)"
+	python3 scripts/check-release.py "$(REAL_APP)" $(THROWAWAY_ARG)
 
 release-internal:
-	python3 scripts/release-internal.py "$(VERSION)"
+	python3 scripts/release-internal.py "$(VERSION)" --critical "$(CRITICAL)" --minimum-version "$(MIN_VERSION)"
+
+release-throwaway:
+	python3 scripts/release-internal.py "$(VERSION)" --throwaway --critical "$(CRITICAL)" --minimum-version "$(MIN_VERSION)"
