@@ -8,6 +8,7 @@ struct CompanionPaceAgent: Equatable {
 struct CompanionShopPace: Equatable {
     let resource: String
     let name: String
+    let targetCurrency: String?
     let currency: String?
     let mtd: Double?
     let goal: Double?
@@ -23,9 +24,10 @@ struct CompanionShopPace: Equatable {
     init(resource: String, name: String, currency: String?, mtd: Double?, goal: Double?,
          expectedByToday: Double?, gap: Double?, progressPct: Double?, paceStatus: String,
          basis: String?, metricsThrough: String? = nil, needsYouTotal: Int? = nil,
-         agents: [CompanionPaceAgent] = []) {
+         agents: [CompanionPaceAgent] = [], targetCurrency: String? = nil) {
         self.resource = resource
         self.name = name
+        self.targetCurrency = targetCurrency
         self.currency = currency
         self.mtd = mtd
         self.goal = goal
@@ -184,10 +186,10 @@ enum CompanionPace {
         let parser = DateFormatter()
         parser.locale = Locale(identifier: "en_US_POSIX")
         parser.dateFormat = "yyyy-MM-dd"
-        guard let date = parser.date(from: value) else { return value }
+        guard let date = parser.date(from: value) else { return nil }
         let formatter = DateFormatter()
         formatter.locale = Locale(identifier: "en_GB")
-        formatter.dateFormat = "d MMM"
+        formatter.dateFormat = "EEEE"
         return formatter.string(from: date)
     }
 
@@ -204,7 +206,12 @@ enum CompanionPace {
         guard let data = body.data(using: .utf8),
               let list = try? JSONDecoder().decode(Portfolio.self, from: data) else { return nil }
         var shops: [String: CompanionShopPace] = [:]
-        for shop in list.shops {
+        // Mirrors home/shops-dashboard.ts shopsInScope (including its legacy fallback).
+        let scope = list.viewer?.default_scope ?? "all"
+        let scoped = list.shops.filter {
+            scope == "all" || list.viewer?.kind == "client" || ($0.scope?[scope] ?? true)
+        }
+        for shop in scoped {
             guard let resource = shop.resource, let name = shop.name, let gmv = shop.gmv,
                   !resource.isEmpty, !name.isEmpty else { continue }
             let pace = CompanionShopPace(
@@ -218,11 +225,11 @@ enum CompanionPace {
                 progressPct: gmv.progress_pct,
                 paceStatus: gmv.pace_status ?? "no_data",
                 basis: gmv.basis,
-                metricsThrough: shop.metrics_through,
+                metricsThrough: shop.day?.date,
                 needsYouTotal: shop.needs_you?.total,
                 agents: (shop.agents ?? []).map {
                     CompanionPaceAgent(role: $0.role ?? "agent", on: $0.on ?? false)
-                })
+                }, targetCurrency: gmv.target_currency)
             if shops[resource] == nil { shops[resource] = pace }
         }
         let totals = list.totals.map { totals in
@@ -234,7 +241,7 @@ enum CompanionPace {
                 unavailableShops: totals.gmv_unavailable_shops,
                 elapsedPct: list.month?.elapsed_pct)
         }
-        let metricsThrough = list.shops.compactMap(\.metrics_through).first
+        let metricsThrough = scoped.compactMap { $0.day?.date }.max()
         return CompanionPacePayload(shops: shops, totals: totals, metricsThrough: metricsThrough)
     }
 
@@ -246,6 +253,7 @@ enum CompanionPace {
             struct GMV: Decodable {
                 let mtd: Double?
                 let currency: String?
+                let target_currency: String?
                 let goal: Double?
                 let expected_by_today: Double?
                 let gap: Double?
@@ -258,7 +266,9 @@ enum CompanionPace {
             let resource: String?
             let name: String?
             let gmv: GMV?
-            let metrics_through: String?
+            struct Day: Decodable { let date: String? }
+            let day: Day?
+            let scope: [String: Bool]?
             let needs_you: NeedsYou?
             let agents: [Agent]?
         }
@@ -272,6 +282,8 @@ enum CompanionPace {
             let behind: Int?
             let gmv_unavailable_shops: Int?
         }
+        struct Viewer: Decodable { let kind: String?; let default_scope: String? }
+        let viewer: Viewer?
         let shops: [Shop]
         let totals: Totals?
         let month: Month?

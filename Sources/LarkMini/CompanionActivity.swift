@@ -163,7 +163,7 @@ enum CompanionActivityParser {
                 let state = (run.state ?? "").lowercased()
                 let outcome = (run.outcome ?? "").lowercased()
                 if state == "running" || state == "queued" { return .running }
-                if state == "failed" || state == "error" || outcome.contains("fail") { return .failed }
+                if state == "failed" || state == "error" || outcome.contains("fail") || ["blocked", "timeout", "provider_error", "infra_error"].contains(outcome) { return .failed }
                 if state == "partial" || outcome.contains("partial") { return .partial }
                 if state == "ok" || state == "success" || outcome.contains("ok") { return .ok }
                 return .running
@@ -215,7 +215,7 @@ enum CompanionActivityFormat {
         return seconds <= 0 ? "due" : "in " + CompanionTodos.ageText(seconds)
     }
 
-    private static func parse(_ value: String) -> Date? {
+    static func parse(_ value: String) -> Date? {
         let formatter = ISO8601DateFormatter()
         formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
         if let date = formatter.date(from: value) { return date }

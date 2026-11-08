@@ -194,7 +194,7 @@ final class OllieModelsTests: XCTestCase {
         XCTAssertEqual(model.newer.map(\.id), [])
         XCTAssertEqual(model.categories.map(\.label), ["Creator Sample", "Money"])
         let old = try XCTUnwrap(model.older.first)
-        XCTAssertTrue(OllieApprovalsModel.isOverdue(old))
+        XCTAssertTrue(OllieApprovalsModel.removedWithinDay(old))
 
     }
 

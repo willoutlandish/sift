@@ -167,7 +167,7 @@ struct OllieTodayView: View {
                 OlliePaceBar(model: bar, tone: shop.pill?.tone ?? .muted)
                     .padding(.top, 9)
                 HStack {
-                    Text("\(Int((shop.pace?.progressPct ?? 0).rounded()))% of \(CompanionPace.compactMoney(shop.pace?.goal, currency: shop.pace?.currency)) month target")
+                    Text("\(Int((shop.pace?.progressPct ?? 0).rounded()))% of \(CompanionPace.compactMoney(shop.pace?.goal, currency: shop.pace?.targetCurrency)) month target")
                     Spacer(minLength: 0)
                     Text("expected \(CompanionPace.compactMoney(shop.pace?.expectedByToday, currency: shop.pace?.currency))")
                 }
@@ -188,8 +188,8 @@ struct OllieTodayView: View {
                         EmptyView()
                     }
                 } else if let working = shop.portfolioWorking, working > 0 {
-                    actionButton(title: "Activity", value: "\(working) ›",
-                                 valueColor: OllieStyle.blue, spinner: true) { onActivity(shop) }
+                    actionButton(title: "Activity", value: "\(working) on ›",
+                                 valueColor: OllieStyle.dim, spinner: false) { onActivity(shop) }
                 } else if shop.activity == nil {
                     actionButton(title: "Activity", value: "›", valueColor: OllieStyle.dim) { onActivity(shop) }
                 }

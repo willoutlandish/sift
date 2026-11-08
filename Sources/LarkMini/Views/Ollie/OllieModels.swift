@@ -108,7 +108,7 @@ struct OllieTodayModel: Equatable {
             }
         }
 
-        if let snapshot {
+        if let snapshot, !paceAvailable {
             for approvalShop in snapshot.shops where !shops.contains(where: {
                 $0.resource.caseInsensitiveCompare(approvalShop.resource) == .orderedSame || $0.name == approvalShop.name
             }) {
@@ -133,15 +133,14 @@ struct OllieTodayModel: Equatable {
         let totalPace = paceAvailable ? paceShops.count : nil
         let behind = paceAvailable ? paceShops.filter { $0.paceStatus == "behind" }.count : nil
         let working: Int? = {
-            let ready = activity.values.compactMap { summary -> Int? in
+            let ready = shops.compactMap(\.activity).compactMap { summary -> Int? in
                 if case .ready(_, let working) = summary { return working }
                 return nil
             }
             if !ready.isEmpty { return ready.reduce(0, +) }
-            let agents = paceShops.flatMap(\.agents)
-            return agents.isEmpty ? nil : agents.filter(\.on).count
+            return nil
         }()
-        let needYou = snapshot?.total ?? paceShops.compactMap(\.needsYouTotal).reduce(nil) { partial, value in
+        let needYou = shops.compactMap(\.pending).reduce(nil) { partial, value in
             (partial ?? 0) + value
         }
 
@@ -159,6 +158,7 @@ struct OllieTodayModel: Equatable {
             }
         }
         if let working { parts.append("\(working) agents working") }
+        else if !paceShops.isEmpty { parts.append("\(paceShops.flatMap(\.agents).filter(\.on).count) agents on") }
         if let needYou { parts.append("\(needYou) waiting for you") }
 
         self.shops = shops
@@ -171,7 +171,7 @@ struct OllieTodayModel: Equatable {
         self.paceAvailable = paceAvailable
         self.allProgress = paceAvailable ? Self.allShopProgress(
             from: Array(pace.values), totals: totals,
-            metricsThrough: pace.values.compactMap(\.metricsThrough).first) : []
+            metricsThrough: pace.values.compactMap(\.metricsThrough).max()) : []
     }
 
     private static func allShopProgress(from shops: [CompanionShopPace],
@@ -344,7 +344,7 @@ struct OllieApprovalsModel: Equatable {
             .sorted { $0.label.localizedCaseInsensitiveCompare($1.label) == .orderedAscending }
         let filtered = category.map { selected in scope.filter { $0.categoryKey == selected } } ?? scope
         let first = filtered.first { $0.priorityBand == "now" }
-        let remaining = Array(filtered.dropFirst())
+        let remaining = filtered.filter { $0.id != first?.id }
 
         var groups: [String: [CompanionTodoItem]] = [:]
         for item in remaining {
@@ -391,17 +391,9 @@ struct OllieApprovalsModel: Equatable {
         return "\(count) \(lower)s"
     }
 
-    static func isOverdue(_ item: CompanionTodoItem, now: Date = Date()) -> Bool {
-        guard let expires = item.expiresAt, let date = parse(expires) else { return false }
-        return date < now
+    static func removedWithinDay(_ item: CompanionTodoItem, now: Date = Date()) -> Bool {
+        guard let expires = item.expiresAt, let date = CompanionActivityFormat.parse(expires) else { return false }
+        return date <= now.addingTimeInterval(86_400)
     }
 
-    static func parse(_ value: String?) -> Date? {
-        guard let value else { return nil }
-        let formatter = ISO8601DateFormatter()
-        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        if let date = formatter.date(from: value) { return date }
-        formatter.formatOptions = [.withInternetDateTime]
-        return formatter.date(from: value)
-    }
 }

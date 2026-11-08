@@ -235,8 +235,8 @@ private struct OllieApprovalItemRow: View {
             HStack(spacing: 4) {
                 Text(item.label).foregroundStyle(OllieStyle.muted)
                 Text("· \(item.age)").foregroundStyle(OllieStyle.muted)
-                if OllieApprovalsModel.isOverdue(item) {
-                    Text("· overdue").foregroundStyle(OllieStyle.red)
+                if item.source == "creator_dm_reply" && OllieApprovalsModel.removedWithinDay(item) {
+                    Text("Removed tomorrow if nobody decides").foregroundStyle(OllieStyle.red)
                 }
             }
             .font(.system(size: 11))
@@ -259,7 +259,7 @@ private struct OllieApprovalItemRow: View {
                                 .buttonStyle(.plain)
                                 .font(.system(size: 11.5, weight: .medium))
                                 .foregroundStyle(answer == "approve" ? OllieStyle.lime : OllieStyle.dim)
-                                .disabled(busy || (answer == "approve" && item.disabledReason != nil))
+                                .disabled(busy)
                         } else if ["change", "send_edited"].contains(answer) {
                             Button(label(answer)) { store.openCompanion(path: item.clickPath) }
                                 .buttonStyle(.plain).font(.system(size: 11.5, weight: .medium))
@@ -276,9 +276,6 @@ private struct OllieApprovalItemRow: View {
                 Button("Open in Companion") { store.openCompanion(path: item.clickPath) }
                     .buttonStyle(.plain).font(.system(size: 11.5, weight: .medium))
                     .foregroundStyle(OllieStyle.dim)
-            }
-            if let reason = item.disabledReason {
-                Text(reason).font(.system(size: 10)).foregroundStyle(OllieStyle.muted)
             }
             if let confirming, confirming.id == item.id, !readOnly {
                 confirmBlock(confirming.answer)
