@@ -42,7 +42,7 @@ final class CompanionWindowController: NSWindowController, WKNavigationDelegate,
     private var externalOpenTimes: [Date] = []
 
     private init() {
-        let configuration = WKWebViewConfiguration()
+        let configuration = CompanionWebConfiguration.make()
         configuration.websiteDataStore = .default()
         let contentController = WKUserContentController()
         configuration.userContentController = contentController
@@ -75,6 +75,7 @@ final class CompanionWindowController: NSWindowController, WKNavigationDelegate,
         webView.uiDelegate = self
         contentController.addScriptMessageHandler(self, contentWorld: .page, name: "ollie")
         contentController.add(self, contentWorld: .page, name: "ollieAuthHint")
+        contentController.add(self, contentWorld: .page, name: "ollieUpdateGuard")
         contentController.add(self, contentWorld: .page, name: "ollieTitlebar")
         webView.isCompanionPage = { [weak self] in self?.companionPageActive ?? false }
         webView.interactiveRows = { [weak self] in self?.titlebarRows ?? [] }
@@ -99,6 +100,49 @@ final class CompanionWindowController: NSWindowController, WKNavigationDelegate,
             }
         ]
     }
+
+    // Observe the existing Companion dialog and fetch/XHR lifecycle. No payload,
+    // URL, text, or user input crosses this guard; it only delays a relaunch.
+    private static let updateGuardSource = """
+    (() => {
+      let pending = 0, previous;
+      const send = () => {
+        const dialog = [...document.querySelectorAll('[role="dialog"], [role="alertdialog"], dialog[open]')]
+          .some(el => el.getClientRects().length > 0);
+        const busy = pending > 0 || dialog;
+        if (busy !== previous) {
+          previous = busy;
+          window.webkit.messageHandlers.ollieUpdateGuard.postMessage(busy);
+        }
+      };
+      const writes = method => !['GET', 'HEAD', 'OPTIONS'].includes(String(method || 'GET').toUpperCase());
+      const fetchOriginal = window.fetch;
+      window.fetch = async function(input, init) {
+        const write = writes(init?.method || input?.method);
+        if (write) { pending++; send(); }
+        try { return await fetchOriginal.apply(this, arguments); }
+        finally { if (write) { pending--; send(); } }
+      };
+      const open = XMLHttpRequest.prototype.open, transmit = XMLHttpRequest.prototype.send;
+      const mutating = new WeakSet();
+      XMLHttpRequest.prototype.open = function(method) {
+        if (writes(method)) mutating.add(this); else mutating.delete(this);
+        return open.apply(this, arguments);
+      };
+      XMLHttpRequest.prototype.send = function() {
+        const write = mutating.has(this);
+        let ended = false;
+        const end = () => { if (!ended && write) { ended = true; pending--; send(); } };
+        if (write) { pending++; send(); this.addEventListener('loadend', end, {once: true}); }
+        try { return transmit.apply(this, arguments); } catch (error) { end(); throw error; }
+      };
+      document.addEventListener('DOMContentLoaded', () => {
+        new MutationObserver(send).observe(document.documentElement,
+          {childList: true, subtree: true, attributes: true});
+        send();
+      }, {once: true});
+    })();
+    """
 
     private static let passkeyHintSource = """
     (function () {
@@ -357,6 +401,8 @@ final class CompanionWindowController: NSWindowController, WKNavigationDelegate,
         })();
         """
         userContentController.removeAllUserScripts()
+        userContentController.addUserScript(WKUserScript(source: Self.updateGuardSource,
+                                                         injectionTime: .atDocumentStart, forMainFrameOnly: true))
         userContentController.addUserScript(WKUserScript(source: source, injectionTime: .atDocumentStart,
                                                          forMainFrameOnly: true))
         userContentController.addUserScript(WKUserScript(source: titlebarSource, injectionTime: .atDocumentStart,
@@ -373,6 +419,15 @@ final class CompanionWindowController: NSWindowController, WKNavigationDelegate,
     func userContentController(_ userContentController: WKUserContentController,
                                didReceive message: WKScriptMessage) {
         guard message.frameInfo.isMainFrame else { return }
+        if message.name == "ollieUpdateGuard" {
+            guard let baseURL,
+                  CompanionConfig.originMatches(scheme: message.frameInfo.securityOrigin.`protocol`,
+                                                host: message.frameInfo.securityOrigin.host,
+                                                port: message.frameInfo.securityOrigin.port, base: baseURL),
+                  let busy = message.body as? Bool else { return }
+            OllieUpdates.shared.companionBusy = busy
+            return
+        }
         if message.name == "ollieAuthHint" {
             showPasskeyHint()
             return

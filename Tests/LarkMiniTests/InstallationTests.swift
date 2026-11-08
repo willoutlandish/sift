@@ -2,6 +2,12 @@ import XCTest
 @testable import LarkMini
 
 final class InstallationTests: XCTestCase {
+    @MainActor func testCompanionUserAgentConfiguration() {
+        XCTAssertEqual(CompanionWebConfiguration.userAgent(version: "0.1.1"), "Ollie/0.1.1")
+        let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0.1.0"
+        XCTAssertEqual(CompanionWebConfiguration.make().applicationNameForUserAgent, "Ollie/" + version)
+    }
+
     func testDefaultsAndSavedSettings() throws {
         XCTAssertEqual(Settings().showIn, .edge)
         XCTAssertTrue(Settings().showInDock)

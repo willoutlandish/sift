@@ -2,6 +2,7 @@ import SwiftUI
 
 struct RootView: View {
     @EnvironmentObject var store: Store
+    @ObservedObject private var updates = OllieUpdates.shared
     @State private var reduceMotion = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
 
     var body: some View {
@@ -13,6 +14,10 @@ struct RootView: View {
                 CollapsedBubble()
                     .transition(.opacity)
             }
+        }
+        .disabled(updates.requiredVersion != nil)
+        .sheet(isPresented: Binding(get: { updates.requiredVersion != nil && store.isExpanded }, set: { _ in })) {
+            UpdateRequiredView(update: { updates.updateNow() }, companion: { store.openCompanion() })
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .overlay(alignment: .bottomTrailing) {
@@ -133,9 +138,9 @@ struct ExpandedView: View {
 }
 
 extension Notification.Name {
-    static let panelDragEnded = Notification.Name("Sift.panelDragEnded")
-    static let panelSettingsChanged = Notification.Name("Sift.panelSettingsChanged")
-    static let expandPanel = Notification.Name("Sift.expandPanel")
-    static let collapsePanel = Notification.Name("Sift.collapsePanel")
-    static let panelContentHeightChanged = Notification.Name("Sift.panelContentHeightChanged")
+    static let panelDragEnded = Notification.Name("Ollie.panelDragEnded")
+    static let panelSettingsChanged = Notification.Name("Ollie.panelSettingsChanged")
+    static let expandPanel = Notification.Name("Ollie.expandPanel")
+    static let collapsePanel = Notification.Name("Ollie.collapsePanel")
+    static let panelContentHeightChanged = Notification.Name("Ollie.panelContentHeightChanged")
 }

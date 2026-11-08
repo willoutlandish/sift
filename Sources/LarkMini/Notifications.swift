@@ -115,6 +115,7 @@ final class Notifications: NSObject, ObservableObject, UNUserNotificationCenterD
     }
 
     func requestApprovalAuthorization() async {
+        guard !CommandLine.arguments.contains("--background-check") else { return }
         guard let center else { access = .unknown; return }
         center.delegate = self
         await refreshAuthorization()

@@ -494,7 +494,7 @@ final class CompanionApprovalsMonitor: NSObject, WKNavigationDelegate, Observabl
         stop()
         self.baseURL = baseURL
         state = .loading
-        let configuration = WKWebViewConfiguration()
+        let configuration = CompanionWebConfiguration.make()
         configuration.websiteDataStore = .default()
         let webView = WKWebView(frame: .zero, configuration: configuration)
         webView.navigationDelegate = self
@@ -646,6 +646,8 @@ final class CompanionApprovalsMonitor: NSObject, WKNavigationDelegate, Observabl
     }
 
     func postJSON(path: String, body: [String: Any]) async -> CompanionFetchReply? {
+        OllieUpdates.shared.beginDecision()
+        defer { OllieUpdates.shared.endDecision() }
         guard !isReadOnly else { return nil }
         guard let webView, baseURL != nil else { return nil }
         await ensureBasePage()

@@ -19,6 +19,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var queryActivity: NSObjectProtocol?
     private var wakeObserver: NSObjectProtocol?
     private var badgeWatch: AnyCancellable?
+    private var updateActivityWatch: AnyCancellable?
     private var companionProbes: [CompanionSignInProbe] = []
     private let companionStatusInstance = UUID().uuidString
     private lazy var companionProbe = CompanionProbeCoordinator(
@@ -54,6 +55,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        CrashReporting.start()
+        OllieUpdates.shared.panelOpen = { [weak self] in self?.store.isExpanded ?? true }
+        OllieUpdates.shared.beforeInstall = {
+            UserDefaults.standard.set(true, forKey: "OllieUpdatedRelaunch")
+            UserDefaults.standard.set(CompanionWindowController.shared.window?.isVisible == true,
+                                      forKey: "OllieRestoreCompanion")
+        }
+        updateActivityWatch = store.$isExpanded.removeDuplicates().sink { _ in
+            OllieUpdates.shared.activity()
+        }
+        OllieUpdates.shared.start()
         GazeTracker.shared.start()
         try? FileManager.default.setAttributes([.posixPermissions: 0o700],
                                                ofItemAtPath: AppPaths.supportDirectory.path)
@@ -107,6 +119,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if case .signedIn = store.auth { signedIn = true } else { signedIn = false }
         store.isExpanded = demoMode ? !CommandLine.arguments.contains("--demo-needs-you")
             : (!signedIn && store.settings.showIn.showsEdgeHead)
+        if UserDefaults.standard.bool(forKey: "OllieUpdatedRelaunch") {
+            store.isExpanded = false
+            UserDefaults.standard.removeObject(forKey: "OllieUpdatedRelaunch")
+            if UserDefaults.standard.bool(forKey: "OllieRestoreCompanion"),
+               let raw = store.companionURL, let base = CompanionConfig.validatedURL(raw) {
+                CompanionWindowController.shared.open(baseURL: base, path: nil, activate: false)
+            }
+            UserDefaults.standard.removeObject(forKey: "OllieRestoreCompanion")
+        }
         if !backgroundCheck && store.settings.showIn.showsEdgeHead {
             panelController.show()
         }
@@ -129,8 +150,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
                 MainActor.assumeIsolated {
                     self.panelController.expand(fromMenuBar: self.store.settings.showIn == .menubar,
-                                                activate: true)
+                                                activate: false)
                     self.panelController.panel.orderFrontRegardless()
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 5) {
+                        let windows = NSApp.windows.filter(\.isVisible).map { ["id": $0.windowNumber,
+                            "width": Int($0.frame.width), "height": Int($0.frame.height)] }
+                        if let data = try? JSONSerialization.data(withJSONObject: ["readback_windows": windows]),
+                           let json = String(data: data, encoding: .utf8) { print(json); fflush(stdout) }
+                    }
                 }
             }
         }

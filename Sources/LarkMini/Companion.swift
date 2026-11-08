@@ -26,7 +26,7 @@ enum CompanionConfig {
                    devURL: Bundle.main.object(forInfoDictionaryKey: "OllieDevelopmentURL") as? String)
     }
     static func defaultURL(development: Bool, devURL: String?) -> String {
-        development ? (devURL ?? "http://localhost:8090") : "https://outlandishdigital.us"
+        development ? (devURL ?? "https://outlandishdigital.us") : "https://outlandishdigital.us"
     }
 
     static func validatedURL(_ raw: String) -> URL? {
@@ -411,7 +411,7 @@ final class CompanionSignInProbe: NSObject, WKNavigationDelegate {
     private var timeout: DispatchWorkItem?
 
     override init() {
-        let configuration = WKWebViewConfiguration()
+        let configuration = CompanionWebConfiguration.make()
         configuration.websiteDataStore = .default()
         webView = WKWebView(frame: .zero, configuration: configuration)
         super.init()
@@ -451,5 +451,16 @@ final class CompanionSignInProbe: NSObject, WKNavigationDelegate {
 
     func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
         finish(signedIn: false)
+    }
+}
+
+// The visible window and all hidden reads/probes use the same application UA suffix.
+enum CompanionWebConfiguration {
+    static func userAgent(version: String) -> String { "Ollie/" + version }
+    @MainActor static func make() -> WKWebViewConfiguration {
+        let configuration = WKWebViewConfiguration()
+        let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0.1.0"
+        configuration.applicationNameForUserAgent = userAgent(version: version)
+        return configuration
     }
 }

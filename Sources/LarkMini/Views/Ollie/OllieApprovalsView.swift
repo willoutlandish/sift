@@ -217,7 +217,8 @@ private struct OllieApprovalItemRow: View {
     let readOnly: Bool
     let onChanged: (String) -> Void
 
-    @State private var confirming: (id: String, answer: String)?
+    @State private var confirming: (item: CompanionTodoItem, answer: String)?
+    @State private var confirmationID = UUID()
     @State private var busy = false
     @State private var message: String?
 
@@ -241,7 +242,7 @@ private struct OllieApprovalItemRow: View {
             .font(.system(size: 11))
 
             if let text = item.recommendation { Text("Recommended: " + text).font(.system(size: 12)) }
-            if let band = item.priorityBand, band != "now" {
+            if let band = item.priorityBand, ["soon", "later"].contains(band) {
                 Text(band == "soon" ? "Do this soon" : "Can wait").font(.system(size: 11))
             }
             if let draft = item.payloadPreview {
@@ -257,12 +258,12 @@ private struct OllieApprovalItemRow: View {
             } else if item.canAnswer {
                 HStack(spacing: 8) {
                     if let answer = item.recommendationAnswer {
-                        Button("Take recommendation") { confirming = (item.id, answer) }
+                        Button("Take recommendation") { confirming = (item, answer) }
                             .buttonStyle(.plain).disabled(busy)
                     }
                     ForEach(item.answers.filter { $0 != item.recommendationAnswer }, id: \.self) { answer in
                         if (answer == "approve" && item.canApprove) || answer == "skip" {
-                            Button(label(answer)) { confirming = (item.id, answer) }
+                            Button(label(answer)) { confirming = (item, answer) }
                                 .buttonStyle(.plain)
                                 .font(.system(size: 11.5, weight: .medium))
                                 .foregroundStyle(answer == "approve" ? OllieStyle.lime : OllieStyle.dim)
@@ -284,7 +285,7 @@ private struct OllieApprovalItemRow: View {
                     .buttonStyle(.plain).font(.system(size: 11.5, weight: .medium))
                     .foregroundStyle(OllieStyle.dim)
             }
-            if let confirming, confirming.id == item.id, !readOnly {
+            if let confirming, confirming.item == item, !readOnly {
                 confirmBlock(confirming.answer)
             }
             if let message {
@@ -300,6 +301,10 @@ private struct OllieApprovalItemRow: View {
             .strokeBorder(highlight ? OllieStyle.lime.opacity(0.35) : OllieStyle.border))
         .textSelection(.enabled)
         .help(item.title)
+        .onChange(of: confirming != nil) { open in
+            OllieUpdates.shared.confirmation(confirmationID, open: open)
+        }
+        .onDisappear { OllieUpdates.shared.confirmation(confirmationID, open: false) }
     }
 
     private var tag: some View {
@@ -348,7 +353,7 @@ private struct OllieApprovalItemRow: View {
     }
 
     private func submit(_ answer: String) {
-        guard confirming?.id == item.id, confirming?.answer == answer else {
+        guard confirming?.item == item, confirming?.answer == answer else {
             confirming = nil
             return
         }
