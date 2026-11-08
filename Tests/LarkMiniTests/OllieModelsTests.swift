@@ -32,7 +32,7 @@ final class OllieModelsTests: XCTestCase {
         XCTAssertEqual(model.shops[2].pill, .ahead("$200"))
         XCTAssertEqual(model.shops[3].pill, .noTarget)
         XCTAssertEqual(model.shops[4].pill, .noData)
-        XCTAssertEqual(model.summary, "2 of 5 shops on pace · 1 behind · 2 without sales data · 3 agents working · 0 waiting for you")
+        XCTAssertEqual(model.summary, "4 with targets · 2 on pace · 1 behind · 1 without targets · 1 without sales data · 3 agents working · 0 waiting for you")
     }
 
 
@@ -72,7 +72,7 @@ final class OllieModelsTests: XCTestCase {
                                    progressPct: nil, paceStatus: "no_data", basis: "total")
         ]
         let model = OllieTodayModel(pace: pace, paceState: .available, snapshot: nil, activity: [:])
-        XCTAssertEqual(model.summary, "2 shops not selling yet")
+        XCTAssertEqual(model.summary, "2 with targets · 0 on pace · 0 behind · 2 without sales data")
     }
 
 
@@ -110,7 +110,7 @@ final class OllieModelsTests: XCTestCase {
         ]
         let onlyPace = OllieTodayModel(pace: pace, paceState: .available, snapshot: nil,
                                        activity: ["one": .unavailable])
-        XCTAssertEqual(onlyPace.summary, "1 of 1 shops on pace · 0 behind")
+        XCTAssertEqual(onlyPace.summary, "1 with targets · 1 on pace · 0 behind")
 
         let noSources = OllieTodayModel(pace: pace, paceState: .hidden, snapshot: nil, activity: [:])
         XCTAssertEqual(noSources.summary, "")

@@ -7,7 +7,7 @@ struct CompanionPaceLabels {
     var goal: String {
         guard let goal = pace.goal, goal > 0 else { return "No target set" }
         let amount = CompanionPace.compactMoney(goal, currency: pace.targetCurrency ?? pace.currency)
-        guard let pct = pace.progressPct else { return "\(amount) goal" }
+        guard pace.mtd != nil, let pct = pace.progressPct else { return "\(amount) goal" }
         return "\(Int(pct.rounded()))% of \(amount) goal"
     }
     var expected: String? {

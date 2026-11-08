@@ -45,11 +45,11 @@ struct OllieRise: ViewModifier {
 
     func body(content: Content) -> some View {
         content
-            .opacity(appeared || reduceMotion ? 1 : 0)
+            .opacity(1)
             .offset(y: appeared || reduceMotion ? 0 : 8)
             .onAppear {
                 guard !reduceMotion else { appeared = true; return }
-                withAnimation(.easeOut(duration: 0.35).delay(Double(index) * 0.05)) {
+                withAnimation(.easeOut(duration: 0.35).delay(Double(min(max(index, 0), 5)) * 0.03)) {
                     appeared = true
                 }
             }

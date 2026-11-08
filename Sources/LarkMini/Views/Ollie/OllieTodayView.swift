@@ -5,6 +5,7 @@ struct OllieTodayView: View {
     @ObservedObject private var monitor = CompanionApprovalsMonitor.shared
     @ObservedObject private var notifications = Notifications.shared
     @ObservedObject private var activity = CompanionActivity.shared
+    @State private var search = ""
     let onActivity: (OllieTodayShop) -> Void
     let onApprovals: (OllieTodayShop) -> Void
 
@@ -15,6 +16,9 @@ struct OllieTodayView: View {
                 notificationRow
             }
             errorStrips
+            TextField("Find a shop", text: $search)
+                .textFieldStyle(.roundedBorder).accessibilityLabel("Find a shop")
+                .padding(.horizontal, 12).padding(.vertical, 6)
             content
         }
         .background(OllieStyle.bg)
@@ -128,7 +132,7 @@ struct OllieTodayView: View {
                     ForEach(Array(model.allProgress.enumerated()), id: \.element.id) { index, progress in
                         allShopsCard(progress).ollieRise(index)
                     }
-                    ForEach(Array(model.shops.enumerated()), id: \.element.id) { index, shop in
+                    ForEach(Array(model.filteredShops(search).enumerated()), id: \.element.id) { index, shop in
                         card(shop).ollieRise(index + model.allProgress.count)
                     }
                 }
@@ -155,7 +159,7 @@ struct OllieTodayView: View {
         VStack(alignment: .leading, spacing: 0) {
             HStack(spacing: 8) {
                 Text(shop.name).font(.system(size: 13.5, weight: .semibold))
-                    .foregroundStyle(OllieStyle.text).lineLimit(1)
+                    .foregroundStyle(OllieStyle.text).lineLimit(2)
                 Spacer(minLength: 0)
                 if let pill = shop.pill {
                     Text(pill.text)
@@ -169,24 +173,7 @@ struct OllieTodayView: View {
                 OlliePaceDetails(pace: pace, tone: shop.pill?.tone ?? .muted)
             }
             HStack(spacing: 6) {
-                if let summary = shop.activity, summary != .unavailable {
-                    switch summary {
-                    case .ready(_, let working):
-                        actionButton(title: "Activity",
-                                     value: working > 0 ? "\(working) ›" : "idle ›",
-                                     valueColor: working > 0 ? OllieStyle.blue : OllieStyle.dim,
-                                     spinner: working > 0) { onActivity(shop) }
-                    case .failed:
-                        actionButton(title: "Activity", value: "›", valueColor: OllieStyle.dim) { onActivity(shop) }
-                    case .unavailable:
-                        EmptyView()
-                    }
-                } else if let working = shop.portfolioWorking, working > 0 {
-                    actionButton(title: "Activity", value: "\(working) on ›",
-                                 valueColor: OllieStyle.dim, spinner: false) { onActivity(shop) }
-                } else if shop.activity == nil {
-                    actionButton(title: "Activity", value: "›", valueColor: OllieStyle.dim) { onActivity(shop) }
-                }
+                actionButton(title: "Activity", value: activityLabel(shop), valueColor: OllieStyle.dim) { onActivity(shop) }
                 actionButton(title: "Waiting on you",
                              value: shop.pending.map { "\($0) ›" } ?? "›",
                              valueColor: OllieStyle.lime) { onApprovals(shop) }
@@ -198,11 +185,20 @@ struct OllieTodayView: View {
         .overlay(RoundedRectangle(cornerRadius: OllieStyle.cardRadius).strokeBorder(OllieStyle.border))
     }
 
+    private func activityLabel(_ shop: OllieTodayShop) -> String {
+        switch shop.activity {
+        case .ready(_, let working): return working > 0 ? "\(working) working ›" : "idle ›"
+        case .unavailable: return "unavailable ›"
+        case .failed: return "retry ›"
+        case nil: return "›"
+        }
+    }
+
     private func allShopsCard(_ progress: OllieAllShopProgress) -> some View {
         VStack(alignment: .leading, spacing: 0) {
             HStack(spacing: 8) {
                 Text(progress.label).font(.system(size: 13.5, weight: .semibold))
-                    .foregroundStyle(OllieStyle.text).lineLimit(1)
+                    .foregroundStyle(OllieStyle.text).lineLimit(2)
                 Spacer(minLength: 0)
                 if let pill = progress.pill {
                     Text(pill.text)
@@ -213,6 +209,10 @@ struct OllieTodayView: View {
                 }
             }
             OlliePaceDetails(pace: progress.pace, tone: progress.pill?.tone ?? .muted)
+            if progress.targetShopCount > 0 {
+                Text("Goal share: \(progress.targetShopCount) \(progress.targetShopCount == 1 ? "shop" : "shops") with targets")
+                    .font(.system(size: 10.5)).foregroundStyle(OllieStyle.dim).padding(.top, 4)
+            }
         }
         .padding(11)
         .background(OllieStyle.card, in: RoundedRectangle(cornerRadius: OllieStyle.cardRadius))
