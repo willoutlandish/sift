@@ -14,8 +14,12 @@ final class ApprovalRoutingTests: XCTestCase {
     }
     func testServerItemLinkPreservesPathAndQuery() {
         let base = URL(string: "https://example.com")!
-        let link = "/companion/app/ajmal/approvals?item=budget%3Aone"
-        XCTAssertEqual(CompanionApprovalEligibility.safeHref(link), link)
-        XCTAssertEqual(CompanionConfig.cliTargetURL(base: base, path: link)?.absoluteString, "https://example.com" + link)
+        for link in ["/companion/app/ajmal/approvals?item=budget%3Aone",
+                     "/ops/shops/one/budget?return=https://example.com/companion/app#budget"] {
+            XCTAssertEqual(CompanionApprovalEligibility.safeHref(link), link)
+            XCTAssertEqual(CompanionConfig.cliTargetURL(base: base, path: link)?.absoluteString, "https://example.com" + link)
+        }
+        XCTAssertNil(CompanionConfig.cliTargetURL(base: base, path: "https://outside.example/budget"))
+        XCTAssertNil(CompanionConfig.cliTargetURL(base: base, path: "//outside.example/budget"))
     }
 }

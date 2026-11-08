@@ -77,7 +77,7 @@ enum CompanionConfig {
     /// they must stay on the configured scheme, host and port.
     static func cliTargetURL(base: URL, path: String?) -> URL? {
         let raw = path?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        guard !raw.contains("://"), !raw.hasPrefix("//") else { return nil }
+        guard URLComponents(string: raw)?.scheme == nil, !raw.hasPrefix("//") else { return nil }
         let normalized = raw.isEmpty ? CompanionPath.fallback : (raw.hasPrefix("/") ? raw : "/" + raw)
         guard let target = URL(string: normalized, relativeTo: base)?.absoluteURL else { return nil }
         return originMatches(scheme: target.scheme ?? "", host: target.host ?? "",
