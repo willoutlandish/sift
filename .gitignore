@@ -3,3 +3,5 @@ dist/
 Support/LarkIcon.png
 Support/AppIcon.iconset/
 .DS_Store
+
+__pycache__/

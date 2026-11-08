@@ -21,11 +21,11 @@
 	<key>CFBundleShortVersionString</key>
 	<string>0.1.0</string>
 	<key>CFBundleVersion</key>
-	<string>1</string>
+	<string>0.1.0</string>
 	<key>LSMinimumSystemVersion</key>
 	<string>14.0</string>
 	<key>LSUIElement</key>
-	<true/>
+	<false/>
 	<key>NSHighResolutionCapable</key>
 	<true/>
 	<key>NSHumanReadableCopyright</key>
@@ -36,26 +36,6 @@
 	<string>Ollie may use the camera when a shop page asks for it.</string>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>Ollie may use the microphone when a shop page asks for it.</string>
-	<key>NSAppTransportSecurity</key>
-	<dict>
-		<key>NSAllowsLocalNetworking</key>
-		<true/>
-		<key>NSExceptionDomains</key>
-		<dict>
-			<key>100.113.131.96</key>
-			<dict>
-				<key>NSExceptionAllowsInsecureHTTPLoads</key>
-				<true/>
-			</dict>
-			<key>test</key>
-			<dict>
-				<key>NSIncludesSubdomains</key>
-				<true/>
-				<key>NSExceptionAllowsInsecureHTTPLoads</key>
-				<true/>
-			</dict>
-		</dict>
-	</dict>
 	<key>CFBundleURLTypes</key>
 	<array>
 		<dict>
@@ -69,5 +49,19 @@
 			<string>Viewer</string>
 		</dict>
 	</array>
+	<key>SUFeedURL</key>
+	<string>https://outlandishdigital.us/ollie/appcast.xml</string>
+	<key>SUEnableAutomaticChecks</key>
+	<true/>
+	<key>SUAutomaticallyUpdate</key>
+	<true/>
+	<key>SUScheduledCheckInterval</key>
+	<integer>21600</integer>
+	<key>SUVerifyUpdateBeforeExtraction</key>
+	<true/>
+	<key>OllieSentryDSN</key>
+	<string></string>
+	<key>SUPublicEDKey</key>
+	<string>W4XDx/UA6Xzj5TUDbcQ4sQBzrmwr7/6HYXIyaDtEBlk=</string>
 </dict>
 </plist>
