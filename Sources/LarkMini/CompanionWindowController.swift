@@ -1,6 +1,7 @@
 import AppKit
 import WebKit
 import os.log
+import Combine
 
 final class CompanionWebView: WKWebView {
     private static let dragLog = OSLog(subsystem: "com.outlandish.ollie", category: "drag")
@@ -63,6 +64,8 @@ final class CompanionWindowController: NSWindowController, WKNavigationDelegate,
     private var lastTitlebarDoubleClick = Date.distantPast
     private var passkeyHintShown = false
     private var titlebarMap = CompanionDragMap()
+    private var titlePath = ""
+    private var titleSubscription: AnyCancellable?
     private var externalOpenTimes: [Date] = []
 
     private init() {
@@ -101,6 +104,11 @@ final class CompanionWindowController: NSWindowController, WKNavigationDelegate,
         contentController.add(self, contentWorld: .page, name: "ollieAuthHint")
         contentController.add(self, contentWorld: .page, name: "ollieUpdateGuard")
         contentController.add(self, contentWorld: .page, name: "ollieTitlebar")
+        contentController.add(self, contentWorld: .page, name: "ollieRoute")
+        titleSubscription = CompanionApprovalsMonitor.shared.$shopNames.sink { [weak self] names in
+            guard let self else { return }
+            self.window?.title = CompanionWindowTitle.make(path: self.titlePath, names: names)
+        }
         webView.isCompanionPage = { [weak self] in self?.companionPageActive ?? false }
         webView.dragMap = { [weak self] in self?.titlebarMap ?? CompanionDragMap() }
         webView.refreshDragMap = { [weak self] in self?.requestTitlebarMap() }
@@ -358,6 +366,16 @@ final class CompanionWindowController: NSWindowController, WKNavigationDelegate,
     func userContentController(_ userContentController: WKUserContentController,
                                didReceive message: WKScriptMessage) {
         guard message.frameInfo.isMainFrame else { return }
+        if message.name == "ollieRoute" {
+            guard let baseURL,
+                  CompanionConfig.originMatches(scheme: message.frameInfo.securityOrigin.`protocol`,
+                      host: message.frameInfo.securityOrigin.host,
+                      port: message.frameInfo.securityOrigin.port, base: baseURL),
+                  let path = message.body as? String else { return }
+            titlePath = path
+            window?.title = CompanionWindowTitle.make(path: path, names: CompanionApprovalsMonitor.shared.shopNames)
+            return
+        }
         if message.name == "ollieUpdateGuard" {
             guard let baseURL,
                   CompanionConfig.originMatches(scheme: message.frameInfo.securityOrigin.`protocol`,
@@ -396,6 +414,8 @@ final class CompanionWindowController: NSWindowController, WKNavigationDelegate,
 
     func webView(_ webView: WKWebView, didCommit navigation: WKNavigation!) {
         passkeyHintShown = false
+        titlePath = companionPageActive ? (webView.url?.path ?? "") : ""
+        window?.title = CompanionWindowTitle.make(path: titlePath, names: CompanionApprovalsMonitor.shared.shopNames)
         titlebarMap = CompanionDragMap()
     }
 

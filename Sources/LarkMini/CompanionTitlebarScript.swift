@@ -88,7 +88,15 @@ enum CompanionTitlebarScript {
             return {...measured, viewportWidth: width, rows};
           };
           window.__ollieTitlebarMap = build;
-          const post = function () { if (handler) handler.postMessage(build()); };
+          let lastPath = null;
+          const post = function () {
+            if (handler) handler.postMessage(build());
+            const route = window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.ollieRoute;
+            if (route && location.origin === appOrigin && lastPath !== location.pathname) {
+              lastPath = location.pathname;
+              route.postMessage(lastPath);
+            }
+          };
           let scheduled = false;
           const schedule = function () {
             if (scheduled) return;

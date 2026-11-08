@@ -486,6 +486,7 @@ final class CompanionApprovalsMonitor: NSObject, WKNavigationDelegate, Observabl
 
     @Published private(set) var state: CompanionTodosState = .loading
     @Published private(set) var pace: [String: CompanionShopPace] = [:]
+    @Published private(set) var shopNames: [String: String] = [:]
     @Published private(set) var paceTotals: CompanionPaceTotals?
     @Published private(set) var paceState: CompanionPaceState = .unknown
     private var webView: WKWebView?
@@ -529,6 +530,7 @@ final class CompanionApprovalsMonitor: NSObject, WKNavigationDelegate, Observabl
         paceRefreshing = false
         state = .loading
         pace = [:]
+        shopNames = [:]
         paceTotals = nil
         paceState = .unknown
         OllieBadge.setApprovals(0)
@@ -783,10 +785,12 @@ final class CompanionApprovalsMonitor: NSObject, WKNavigationDelegate, Observabl
         let state = CompanionPaceState.from(status: reply.status)
         if state == .available, let payload = CompanionPace.parse(reply.body) {
             pace = payload.shops
+            shopNames = payload.shopNames
             paceTotals = payload.totals
             paceState = .available
         } else if state == .hidden {
             pace = [:]
+        shopNames = [:]
             paceTotals = nil
             paceState = .hidden
         } else if pace.isEmpty { paceState = .failed }

@@ -69,6 +69,7 @@ struct CompanionPacePayload: Equatable {
     let shops: [String: CompanionShopPace]
     let totals: CompanionPaceTotals?
     let metricsThrough: String?
+    var shopNames: [String: String] = [:]
 }
 
 enum CompanionPaceState: Equatable {
@@ -195,7 +196,11 @@ enum CompanionPace {
                 elapsedPct: list.month?.elapsed_pct, monthLeft: list.month?.left, month: list.month?.model)
         }
         let metricsThrough = scoped.compactMap { $0.day?.date }.max()
-        return CompanionPacePayload(shops: shops, totals: totals, metricsThrough: metricsThrough)
+        var names: [String: String] = [:]
+        for shop in list.shops {
+            if let resource = shop.resource, let name = shop.name, !resource.isEmpty, !name.isEmpty { names[resource] = name }
+        }
+        return CompanionPacePayload(shops: shops, totals: totals, metricsThrough: metricsThrough, shopNames: names)
     }
 
     private struct Portfolio: Decodable {
