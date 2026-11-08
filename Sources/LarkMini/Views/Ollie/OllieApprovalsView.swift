@@ -305,6 +305,11 @@ private struct OllieApprovalItemRow: View {
             OllieUpdates.shared.confirmation(confirmationID, open: open)
         }
         .onDisappear { OllieUpdates.shared.confirmation(confirmationID, open: false) }
+        .onReceive(OllieUpdates.shared.$requiredVersion) { version in
+            // A critical gate disables this row. Invalidate its unsubmitted
+            // confirmation so Update now cannot be trapped behind a disabled Cancel.
+            if version != nil { confirming = nil }
+        }
     }
 
     private var tag: some View {
