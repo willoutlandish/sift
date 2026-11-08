@@ -15,7 +15,7 @@ final class CompanionWebView: WKWebView {
         let strip = isCompanionPage() ? CompanionDragHitTest.titleBarHeight
                                       : CompanionDragHitTest.insetTitleBarHeight
         guard CompanionDragHitTest.shouldDrag(point: point, in: bounds, strip: strip,
-                                               rows: interactiveRows()) else {
+                                               rows: interactiveRows(), isCompanionPage: isCompanionPage()) else {
             super.mouseDown(with: event)
             return
         }
@@ -197,14 +197,20 @@ final class CompanionWindowController: NSWindowController, WKNavigationDelegate,
 
     var currentURL: URL? { webView.url }
 
-    func open(baseURL: URL, path: String?, allowAnyPath: Bool = false, activate: Bool = true, restoringURL: URL? = nil) {
+    func open(baseURL: URL, path: String?, allowAnyPath: Bool = false, source: CompanionOpenSource = .panel, restoringURL: URL? = nil) {
         let target = CompanionRestore.url(restoringURL?.absoluteString, base: baseURL) ?? (allowAnyPath ? CompanionConfig.cliTargetURL(base: baseURL, path: path) : nil)
             ?? CompanionConfig.targetURL(base: baseURL, path: path)
             ?? baseURL
         self.baseURL = baseURL
         policy = CompanionNavigationPolicy(baseURL: baseURL)
         installCompanionBridge(appOrigin: baseURL)
-        if activate {
+        if let window {
+            // canJoinAllSpaces and moveToActiveSpace are mutually exclusive.
+            // Clear prior foreground behavior so a later scheme open stays passive.
+            window.collectionBehavior.subtract([.canJoinAllSpaces, .moveToActiveSpace, .fullScreenAuxiliary])
+            window.collectionBehavior.formUnion(source.collectionBehavior)
+        }
+        if source.requestsForeground {
             if window?.isMiniaturized == true { window?.deminiaturize(nil) }
             // Recover saved frames from disconnected displays before showing the window.
             if let window, !NSScreen.screens.contains(where: { $0.visibleFrame.intersects(window.frame) }) {
@@ -347,19 +353,15 @@ final class CompanionWindowController: NSWindowController, WKNavigationDelegate,
           };
           window.addEventListener('resize', schedule);
           document.addEventListener('scroll', schedule, true);
-          new MutationObserver(schedule).observe(document.documentElement,
+          new MutationObserver(schedule).observe(document,
             { childList: true, subtree: true, attributes: true,
               attributeFilter: ['style', 'class', 'hidden', 'aria-hidden', 'href', 'role'] });
-          if (window.ResizeObserver) new ResizeObserver(schedule).observe(document.documentElement);
+          if (window.ResizeObserver && document.documentElement) {
+            new ResizeObserver(schedule).observe(document.documentElement);
+          }
           document.addEventListener('DOMContentLoaded', schedule);
           if (!isCompanion) {
-            const apply = function () {
-              if (!document.documentElement) return;
-              document.documentElement.style.setProperty('transform', 'translateY(28px)', 'important');
-              document.documentElement.style.setProperty('height', 'calc(100% - 28px)', 'important');
-            };
-            apply();
-            if (!document.documentElement) document.addEventListener('DOMContentLoaded', apply, { once: true });
+            \(CompanionPageInset.source)
           }
           schedule();
         })();

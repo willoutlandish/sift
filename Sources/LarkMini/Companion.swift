@@ -1,4 +1,5 @@
 import Foundation
+import AppKit
 import WebKit
 
 enum CompanionPath {
@@ -21,10 +22,18 @@ enum CompanionPath {
 }
 
 enum CompanionOpenSource {
-    case cli, urlScheme
+    case panel, dock, cli, notification, urlScheme, updateRestore
 
-    /// CLI requests reveal the window and take focus; external scheme links stay passive.
-    var requestsForeground: Bool { self == .cli }
+    var requestsForeground: Bool {
+        switch self {
+        case .panel, .dock, .cli, .notification: return true
+        case .urlScheme, .updateRestore: return false
+        }
+    }
+
+    var collectionBehavior: NSWindow.CollectionBehavior {
+        requestsForeground ? [.moveToActiveSpace, .fullScreenAuxiliary] : []
+    }
 }
 
 enum CompanionConfig {
@@ -114,7 +123,10 @@ enum CompanionDragHitTest {
     }
 
     static func shouldDrag(point: CGPoint, in bounds: CGRect, strip: CGFloat,
-                           rows: [CompanionDragRow]) -> Bool {
+                           rows: [CompanionDragRow], isCompanionPage: Bool = true) -> Bool {
+        // Auth and other non-bridge pages must receive every click, even before
+        // their DOM/control map is ready or when a control is fixed to the top.
+        guard isCompanionPage else { return false }
         let top = bounds.maxY - point.y
         guard top >= 0, top <= strip else { return false }
         return !rows.contains { row in

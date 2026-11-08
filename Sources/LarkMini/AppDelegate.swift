@@ -80,7 +80,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             if destination == "control" {
                 self.store.openControl()
             } else if destination.hasPrefix("companion:") {
-                self.store.openCompanion(path: String(destination.dropFirst("companion:".count)))
+                self.store.openCompanion(path: String(destination.dropFirst("companion:".count)), source: .notification)
             } else if let chat = self.store.chats.first(where: { $0.id == destination }) {
                 self.store.open(chat)
             }
@@ -127,7 +127,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             if UserDefaults.standard.bool(forKey: "OllieRestoreCompanion"),
                let raw = store.companionURL, let base = CompanionConfig.validatedURL(raw) {
                 let saved = UserDefaults.standard.string(forKey: "OllieRestoreCompanionURL")
-                CompanionWindowController.shared.open(baseURL: base, path: nil, activate: false,
+                CompanionWindowController.shared.open(baseURL: base, path: nil, source: .updateRestore,
                     restoringURL: CompanionRestore.url(saved, base: base))
             }
             UserDefaults.standard.removeObject(forKey: "OllieRestoreCompanion")
@@ -178,7 +178,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 guard normalized.hasPrefix("/companion/app") else { return }
                 let accepted = CompanionPath.accepted(normalized)
                 guard CompanionConfig.isCompanionAppPath(accepted) else { return }
-                store.openCompanion(path: accepted, activate: CompanionOpenSource.urlScheme.requestsForeground)
+                store.openCompanion(path: accepted, source: .urlScheme)
             } else if let id = ChatLinks.chatId(from: url) {
                 panelController.expand(fromMenuBar: store.settings.showIn == .menubar)
                 store.openLinkedChat(id)
@@ -189,7 +189,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
         switch DockRouting.destination(panelOpen: store.isExpanded && panelController.panel.isVisible) {
         case .panel: panelController.expand(fromMenuBar: store.settings.showIn == .menubar)
-        case .companion: store.openCompanion()
+        case .companion: store.openCompanion(source: .dock)
         }
         return false
     }
@@ -307,7 +307,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
               let target = CompanionConfig.cliTargetURL(base: requested, path: path) else { return }
         let instance = companionStatusInstance
         CompanionWindowController.shared.open(baseURL: requested, path: path, allowAnyPath: true,
-                                              activate: CompanionOpenSource.cli.requestsForeground)
+                                              source: .cli)
         let file = AppPaths.supportDirectory
             .appendingPathComponent("companion-open-\(id)-\(instance).json")
         let payload: [String: Any] = ["opened": true, "url": target.absoluteString]
