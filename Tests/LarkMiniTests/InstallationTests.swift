@@ -17,8 +17,10 @@ final class InstallationTests: XCTestCase {
         let saved = try JSONDecoder().decode(Settings.self, from: Data(#"{"showIn":"both","showInDock":false}"#.utf8))
         XCTAssertEqual(saved.showIn, .both)
         XCTAssertFalse(saved.showInDock)
-        XCTAssertEqual(DockRouting.destination(panelOpen: false), .panel)
+        XCTAssertEqual(DockRouting.destination(panelOpen: false), .companion)
         XCTAssertEqual(DockRouting.destination(panelOpen: true), .companion)
+        XCTAssertTrue(DockRouting.shouldRaiseOnActivation(panelInteraction: false))
+        XCTAssertFalse(DockRouting.shouldRaiseOnActivation(panelInteraction: true))
         XCTAssertEqual(CompanionConfig.defaultURL(development: false, devURL: "http://localhost:8090"), "https://outlandishdigital.us")
         XCTAssertEqual(CompanionConfig.defaultURL(development: true, devURL: "http://localhost:8090"), "http://localhost:8090")
     }

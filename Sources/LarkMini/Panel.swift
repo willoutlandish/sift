@@ -5,6 +5,8 @@ import SwiftUI
 final class PanelBridge {
     static let shared = PanelBridge()
     weak var panel: FloatingPanel?
+    var lastPanelInteraction = Date.distantPast
+    var recentPanelInteraction: Bool { Date().timeIntervalSince(lastPanelInteraction) < 0.5 }
     var isFocused: Bool { panel.map { $0.isKeyWindow && $0.frame.height > 100 } ?? false }
 }
 
@@ -38,8 +40,9 @@ final class FloatingPanel: NSPanel {
 
     override func sendEvent(_ event: NSEvent) {
         // A nonactivating panel's first click otherwise only makes it key.
-        if event.type == .leftMouseDown, !isKeyWindow {
-            makeKey()
+        if event.type == .leftMouseDown {
+            PanelBridge.shared.lastPanelInteraction = Date()
+            if !isKeyWindow { makeKey() }
         }
         super.sendEvent(event)
     }
@@ -230,6 +233,7 @@ final class PanelController {
     }
 
     func expand(fromMenuBar: Bool = false, activate: Bool = true) {
+        PanelBridge.shared.lastPanelInteraction = Date()
         store.reloadState()
         Task { await Notifications.shared.requestApprovalAuthorization() }
         transitionID += 1

@@ -76,7 +76,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                                                  "companion-drag-map-", "companion-open-"])
         Notifications.shared.onOpen = { [weak self] destination in
             guard let self else { return }
-            self.panelController.expand(fromMenuBar: self.store.settings.showIn == .menubar)
             if destination == "control" {
                 self.store.openControl()
             } else if destination.hasPrefix("companion:") {
@@ -117,10 +116,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             MainActor.assumeIsolated { self?.applyShowInMode() }
         }
         applyShowInMode()
-        let signedIn: Bool
-        if case .signedIn = store.auth { signedIn = true } else { signedIn = false }
-        store.isExpanded = demoMode ? !CommandLine.arguments.contains("--demo-needs-you")
-            : (!signedIn && store.settings.showIn.showsEdgeHead)
+        store.isExpanded = demoMode && !CommandLine.arguments.contains("--demo-needs-you")
         if UserDefaults.standard.bool(forKey: "OllieUpdatedRelaunch") {
             store.isExpanded = false
             UserDefaults.standard.removeObject(forKey: "OllieUpdatedRelaunch")
@@ -180,18 +176,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 guard CompanionConfig.isCompanionAppPath(accepted) else { return }
                 store.openCompanion(path: accepted, source: .urlScheme)
             } else if let id = ChatLinks.chatId(from: url) {
-                panelController.expand(fromMenuBar: store.settings.showIn == .menubar)
                 store.openLinkedChat(id)
             }
         }
     }
 
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
-        switch DockRouting.destination(panelOpen: store.isExpanded && panelController.panel.isVisible) {
-        case .panel: panelController.expand(fromMenuBar: store.settings.showIn == .menubar)
-        case .companion: store.openCompanion(source: .dock)
-        }
+        store.openCompanion(source: .dock)
         return false
+    }
+
+    func applicationDidBecomeActive(_ notification: Notification) {
+        guard !demoMode, !backgroundCheck,
+              DockRouting.shouldRaiseOnActivation(panelInteraction: PanelBridge.shared.recentPanelInteraction) else { return }
+        store.openCompanion(source: .dock)
     }
 
     func applicationWillTerminate(_ notification: Notification) {
@@ -577,5 +575,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
 enum DockRouting {
     enum Destination { case panel, companion }
-    static func destination(panelOpen: Bool) -> Destination { panelOpen ? .companion : .panel }
+    static func destination(panelOpen: Bool) -> Destination { .companion }
+    static func shouldRaiseOnActivation(panelInteraction: Bool) -> Bool { !panelInteraction }
 }

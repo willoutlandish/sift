@@ -239,12 +239,21 @@ final class CompanionWindowController: NSWindowController, WKNavigationDelegate,
     var currentURL: URL? { webView.url }
 
     func open(baseURL: URL, path: String?, allowAnyPath: Bool = false, source: CompanionOpenSource = .panel, restoringURL: URL? = nil) {
+        if source == .dock, self.baseURL == baseURL, webView.url != nil {
+            reveal(source: source)
+            return
+        }
         let target = CompanionRestore.url(restoringURL?.absoluteString, base: baseURL) ?? (allowAnyPath ? CompanionConfig.cliTargetURL(base: baseURL, path: path) : nil)
             ?? CompanionConfig.targetURL(base: baseURL, path: path)
             ?? baseURL
         self.baseURL = baseURL
         policy = CompanionNavigationPolicy(baseURL: baseURL)
         installCompanionBridge(appOrigin: baseURL)
+        reveal(source: source)
+        webView.load(URLRequest(url: target))
+    }
+
+    private func reveal(source: CompanionOpenSource) {
         if let window {
             // canJoinAllSpaces and moveToActiveSpace are mutually exclusive.
             // Clear prior foreground behavior so a later scheme open stays passive.
@@ -263,7 +272,6 @@ final class CompanionWindowController: NSWindowController, WKNavigationDelegate,
         } else {
             window?.orderFront(nil)
         }
-        webView.load(URLRequest(url: target))
     }
 
     private func installCompanionBridge(appOrigin: URL) {
