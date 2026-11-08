@@ -5,6 +5,12 @@ struct CompanionPaceAgent: Equatable {
     let on: Bool
 }
 
+struct CompanionPaceMonth: Equatable {
+    let start: String?
+    let day: Int?
+    let daysInMonth: Int?
+}
+
 struct CompanionShopPace: Equatable {
     let resource: String
     let name: String
@@ -20,11 +26,12 @@ struct CompanionShopPace: Equatable {
     let metricsThrough: String?
     let needsYouTotal: Int?
     let agents: [CompanionPaceAgent]
+    let month: CompanionPaceMonth?
 
     init(resource: String, name: String, currency: String?, mtd: Double?, goal: Double?,
          expectedByToday: Double?, gap: Double?, progressPct: Double?, paceStatus: String,
          basis: String?, metricsThrough: String? = nil, needsYouTotal: Int? = nil,
-         agents: [CompanionPaceAgent] = [], targetCurrency: String? = nil) {
+         agents: [CompanionPaceAgent] = [], targetCurrency: String? = nil, month: CompanionPaceMonth? = nil) {
         self.resource = resource
         self.name = name
         self.targetCurrency = targetCurrency
@@ -39,6 +46,7 @@ struct CompanionShopPace: Equatable {
         self.metricsThrough = metricsThrough
         self.needsYouTotal = needsYouTotal
         self.agents = agents
+        self.month = month
     }
 }
 
@@ -54,6 +62,7 @@ struct CompanionPaceTotals: Equatable {
     let unavailableShops: Int?
     let elapsedPct: Double?
     var monthLeft: String? = nil
+    var month: CompanionPaceMonth? = nil
 }
 
 struct CompanionPacePayload: Equatable {
@@ -173,7 +182,7 @@ enum CompanionPace {
                 needsYouTotal: shop.needs_you?.total,
                 agents: (shop.agents ?? []).map {
                     CompanionPaceAgent(role: $0.role ?? "agent", on: $0.on ?? false)
-                }, targetCurrency: gmv.target_currency)
+                }, targetCurrency: gmv.target_currency, month: list.month?.model)
             if shops[resource] == nil { shops[resource] = pace }
         }
         let totals = list.month.map { _ in list.totals }.map { totals in
@@ -183,7 +192,7 @@ enum CompanionPace {
                 },
                 behind: totals?.behind,
                 unavailableShops: totals?.gmv_unavailable_shops,
-                elapsedPct: list.month?.elapsed_pct, monthLeft: list.month?.left)
+                elapsedPct: list.month?.elapsed_pct, monthLeft: list.month?.left, month: list.month?.model)
         }
         let metricsThrough = scoped.compactMap { $0.day?.date }.max()
         return CompanionPacePayload(shops: shops, totals: totals, metricsThrough: metricsThrough)
@@ -191,6 +200,8 @@ enum CompanionPace {
 
     private struct Portfolio: Decodable {
         struct Month: Decodable {
+            let start: String?
+            var model: CompanionPaceMonth { CompanionPaceMonth(start: start, day: day, daysInMonth: days_in_month) }
             let elapsed_pct: Double?
             let days_left: Int?
             let days_in_month: Int?

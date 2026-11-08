@@ -29,7 +29,7 @@ final class OllieModelsTests: XCTestCase {
         XCTAssertEqual(model.shops.map(\.name), ["CROCS", "JLO", "AHEAD", "Alpha", "Zeta"])
         XCTAssertEqual(model.shops[0].pill, .behind("$7.3k"))
         XCTAssertEqual(model.shops[1].pill, .onTrack)
-        XCTAssertEqual(model.shops[2].pill, .ahead("+$200"))
+        XCTAssertEqual(model.shops[2].pill, .ahead("$200"))
         XCTAssertEqual(model.shops[3].pill, .noTarget)
         XCTAssertEqual(model.shops[4].pill, .noData)
         XCTAssertEqual(model.summary, "2 of 5 shops on pace · 1 behind · 2 without sales data · 3 agents working · 0 waiting for you")
@@ -49,15 +49,15 @@ final class OllieModelsTests: XCTestCase {
                                       progressPct: 50, paceStatus: "on_track", basis: "total")
         ]
         let model = OllieTodayModel(pace: pace, paceState: .available, snapshot: nil, activity: [:])
-        XCTAssertEqual(model.allProgress.count, 1)
+        XCTAssertEqual(model.allProgress.count, 2)
         let usd = model.allProgress.first { $0.currency == "USD" }
         XCTAssertEqual(usd?.pace.mtd, 300)
         XCTAssertEqual(usd?.pace.goal, 3000)
         XCTAssertNil(usd?.pace.expectedByToday)
         XCTAssertNil(usd?.pace.gap)
         XCTAssertNil(usd?.pill)
-        XCTAssertEqual(usd?.others.first?.currency, "GBP")
-        XCTAssertEqual(usd?.others.first?.mtd, 50)
+        XCTAssertNotNil(model.allProgress.first { $0.currency == "GBP" })
+        XCTAssertEqual(model.allProgress.first { $0.currency == "GBP" }?.pace.mtd, 50)
         XCTAssertNotEqual(usd?.pace.mtd, 350, "currencies must never be added together")
     }
 
@@ -94,9 +94,9 @@ final class OllieModelsTests: XCTestCase {
         XCTAssertEqual(model.allProgress.count, 1)
         let usd = model.allProgress.first { $0.currency == "USD" }
         XCTAssertEqual(usd?.pace.expectedByToday, 200)
-        XCTAssertNil(usd?.pace.gap)
+        XCTAssertEqual(usd?.pace.gap, -100)
         XCTAssertEqual(usd?.bar.expectedFraction ?? 0, 0.2, accuracy: 0.0001)
-        XCTAssertNil(usd?.pill)
+        XCTAssertEqual(usd?.pill, .behind("$100"))
         XCTAssertEqual(usd?.pace.metricsThrough, "2026-11-06")
         XCTAssertNotEqual(usd?.pace.mtd, 350, "currencies must never be added together")
         XCTAssertEqual(CompanionPace.metricsText("2026-11-06"), "Friday")

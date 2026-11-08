@@ -165,16 +165,8 @@ struct OllieTodayView: View {
                         .background(pill.tone.color.opacity(0.15), in: Capsule())
                 }
             }
-            if let bar = shop.bar, shop.pace?.goal != nil, shop.pace?.mtd != nil {
-                OlliePaceBar(model: bar, tone: shop.pill?.tone ?? .muted)
-                    .padding(.top, 9)
-                HStack {
-                    Text("\(Int((shop.pace?.progressPct ?? 0).rounded()))% of \(CompanionPace.compactMoney(shop.pace?.goal, currency: shop.pace?.targetCurrency)) month target")
-                    Spacer(minLength: 0)
-                    Text("expected \(CompanionPace.compactMoney(shop.pace?.expectedByToday, currency: shop.pace?.currency))")
-                }
-                .font(.system(size: 11.5)).foregroundStyle(OllieStyle.dim)
-                .padding(.top, 4)
+            if let pace = shop.pace {
+                OlliePaceDetails(pace: pace, tone: shop.pill?.tone ?? .muted)
             }
             HStack(spacing: 6) {
                 if let summary = shop.activity, summary != .unavailable {
@@ -220,34 +212,7 @@ struct OllieTodayView: View {
                         .background(pill.tone.color.opacity(0.15), in: Capsule())
                 }
             }
-            Text(CompanionPace.compactMoney(progress.pace.mtd, currency: progress.currency) + " sales this month")
-                .font(.system(size: 18, weight: .semibold)).padding(.top, 8)
-            ForEach(progress.others, id: \.currency) { other in
-                Text(CompanionPace.compactMoney(other.mtd, currency: other.currency)).font(.system(size: 11))
-            }
-            if let left = progress.monthLeft { Text(left).font(.system(size: 11)) }
-            OlliePaceBar(model: progress.bar, tone: progress.pill?.tone ?? .muted)
-                .padding(.top, 9)
-            HStack {
-                if let pct = progress.pace.progressPct {
-                    Text("\(Int(pct.rounded()))% of \(CompanionPace.compactMoney(progress.pace.goal, currency: progress.currency)) month target")
-                } else if progress.pace.goal != nil {
-                    Text("No sales data · goal \(CompanionPace.compactMoney(progress.pace.goal, currency: progress.currency))")
-                } else {
-                    Text("No sales data")
-                }
-                Spacer(minLength: 0)
-                if let expected = progress.pace.expectedByToday {
-                    Text("expected \(CompanionPace.compactMoney(expected, currency: progress.currency))")
-                }
-            }
-            .font(.system(size: 11.5)).foregroundStyle(OllieStyle.dim)
-            .padding(.top, 4)
-            if let through = CompanionPace.metricsText(progress.pace.metricsThrough) {
-                Text("numbers to \(through)")
-                    .font(.system(size: 10.5)).foregroundStyle(OllieStyle.muted)
-                    .padding(.top, 2)
-            }
+            OlliePaceDetails(pace: progress.pace, tone: progress.pill?.tone ?? .muted)
         }
         .padding(11)
         .background(OllieStyle.card, in: RoundedRectangle(cornerRadius: OllieStyle.cardRadius))
@@ -295,26 +260,63 @@ struct OllieTodayView: View {
     }
 }
 
+private struct OlliePaceDetails: View {
+    let pace: CompanionShopPace
+    let tone: OllieTone
+    private var labels: CompanionPaceLabels { CompanionPaceLabels(pace: pace) }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(labels.sold).font(.system(size: pace.mtd == nil ? 12 : 20, weight: .semibold))
+                    if pace.mtd != nil { Text("sold this month").font(.system(size: 11)).foregroundStyle(OllieStyle.dim) }
+                }
+                Spacer(minLength: 0)
+                Text(labels.goal).font(.system(size: 12, weight: .medium))
+                    .multilineTextAlignment(.trailing).foregroundStyle(OllieStyle.dim)
+            }
+            if pace.mtd != nil, (pace.goal ?? 0) > 0 {
+                OlliePaceBar(model: CompanionPaceBarModel(pace), tone: tone, expected: labels.expected)
+            }
+            if let scale = labels.scale {
+                HStack { Text(scale.start); Spacer(); Text(scale.end) }
+                    .font(.system(size: 10.5)).foregroundStyle(OllieStyle.muted)
+            }
+            if !labels.footer.isEmpty {
+                Text(labels.footer).font(.system(size: 11.5)).foregroundStyle(OllieStyle.dim).padding(.top, 3)
+            }
+        }.padding(.top, 8)
+    }
+}
+
 private struct OlliePaceBar: View {
     @Environment(\.siftReduceMotion) private var reduceMotion
     let model: CompanionPaceBarModel
     let tone: OllieTone
+    let expected: String?
     @State private var grown = false
 
     var body: some View {
         GeometryReader { geometry in
-            ZStack(alignment: .leading) {
-                Capsule().fill(OllieStyle.card2).frame(height: 7)
+            ZStack(alignment: .topLeading) {
+                Capsule().fill(OllieStyle.card2).frame(height: 7).offset(y: 23)
                 Capsule().fill(tone.color)
                     .frame(width: geometry.size.width * (grown || reduceMotion ? model.actualFraction : 0), height: 7)
+                    .offset(y: 23)
                 if let tick = model.expectedFraction {
-                    Rectangle().fill(Color.white.opacity(0.85)).frame(width: 2, height: 15)
-                        .offset(x: min(max(0, geometry.size.width * tick - 1), geometry.size.width - 2), y: -4)
+                    Rectangle().fill(Color.white.opacity(0.85)).frame(width: 2, height: 17)
+                        .offset(x: min(max(0, geometry.size.width * tick - 1), geometry.size.width - 2), y: 18)
+                    if let expected {
+                        let labelWidth = min(180, geometry.size.width)
+                        Text(expected).font(.system(size: 10)).foregroundStyle(OllieStyle.dim)
+                            .lineLimit(1).minimumScaleFactor(0.8).frame(width: labelWidth)
+                            .offset(x: min(max(0, geometry.size.width * tick - labelWidth / 2), geometry.size.width - labelWidth))
+                    }
                 }
             }
-            .frame(maxHeight: .infinity, alignment: .center)
         }
-        .frame(height: 15)
+        .frame(height: 35)
         .onAppear {
             guard !reduceMotion else { grown = true; return }
             withAnimation(.easeOut(duration: 0.8)) { grown = true }

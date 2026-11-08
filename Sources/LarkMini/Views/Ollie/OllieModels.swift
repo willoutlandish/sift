@@ -10,12 +10,12 @@ enum OlliePacePill: Equatable {
 
     var text: String {
         switch self {
-        case .behind(let amount): return amount + " behind pace"
+        case .behind(let amount): return amount + " behind"
         case .onTrack: return "On pace"
-        case .ahead: return "Ahead of pace"
+        case .ahead(let amount): return amount + " ahead"
         case .tooEarly: return "Too early to tell"
         case .noTarget: return "No target set"
-        case .noData: return "Pace unavailable"
+        case .noData: return "No sales data yet"
         }
     }
 
@@ -28,7 +28,7 @@ enum OlliePacePill: Equatable {
         case "on_track":
             return .onTrack
         case "ahead":
-            return .ahead(CompanionPace.compactMoney(pace.gap, currency: pace.currency, signed: true))
+            return .ahead(CompanionPace.compactMoney(pace.gap.map { abs($0) }, currency: pace.currency))
         case "too_early":
             return .tooEarly
         case "no_target":
@@ -74,7 +74,7 @@ struct OllieAllShopProgress: Identifiable, Equatable {
 
     var id: String { currency ?? "all" }
     var label: String { currency.map { "All shops · \($0)" } ?? "All shops" }
-    var pill: OlliePacePill? { nil }
+    var pill: OlliePacePill? { pace.gap == nil ? nil : OlliePacePill.make(pace) }
     var bar: CompanionPaceBarModel { CompanionPaceBarModel(pace) }
 }
 
@@ -184,17 +184,21 @@ struct OllieTodayModel: Equatable {
         let ordered = grouped.map { currency, group in
             CompanionPaceCurrencyTotal(currency: currency, mtd: group.compactMap(\.mtd).reduce(0, +), goal: nil)
         }.sorted { ($0.mtd ?? 0) > ($1.mtd ?? 0) }
-        guard let main = ordered.first, let currency = main.currency, let group = grouped[currency] else { return [] }
-        let targeted = group.filter { $0.goal != nil && $0.mtd != nil && $0.progressPct != nil }
-        let goal = targeted.isEmpty ? nil : targeted.compactMap(\.goal).reduce(0, +)
-        let sales = targeted.compactMap(\.mtd).reduce(0, +)
-        let pct = (goal ?? 0) != 0 ? (sales / goal! * 100).rounded() : nil
-        let expected = goal.flatMap { goal in totals?.elapsedPct.map { goal * $0 / 100 } }
-        return [OllieAllShopProgress(currency: currency,
-            pace: CompanionShopPace(resource: "all", name: "All shops", currency: currency, mtd: main.mtd,
-                goal: goal, expectedByToday: expected, gap: nil, progressPct: pct,
-                paceStatus: "", basis: "total", metricsThrough: metricsThrough),
-            others: Array(ordered.dropFirst()), monthLeft: totals?.monthLeft)]
+        return ordered.compactMap { total in
+            guard let currency = total.currency, let group = grouped[currency] else { return nil }
+            let targeted = group.filter { $0.goal != nil && $0.mtd != nil && $0.progressPct != nil }
+            let goal = targeted.isEmpty ? nil : targeted.compactMap(\.goal).reduce(0, +)
+            let sales = targeted.compactMap(\.mtd).reduce(0, +)
+            let pct = (goal ?? 0) != 0 ? (sales / goal! * 100).rounded() : nil
+            let expected = goal.flatMap { goal in totals?.elapsedPct.map { goal * $0 / 100 } }
+            let gap = expected.map { sales - $0 }
+            return OllieAllShopProgress(currency: currency,
+                pace: CompanionShopPace(resource: "all", name: "All shops", currency: currency, mtd: total.mtd,
+                    goal: goal, expectedByToday: expected, gap: gap, progressPct: pct,
+                    paceStatus: gap.map { $0 < 0 ? "behind" : ($0 > 0 ? "ahead" : "on_track") } ?? "",
+                    basis: "total", metricsThrough: metricsThrough, targetCurrency: currency, month: totals?.month),
+                monthLeft: totals?.monthLeft)
+        }
     }
 
     private static func rank(_ status: String?) -> Int {
