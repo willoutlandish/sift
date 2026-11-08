@@ -221,6 +221,30 @@ enum CompanionBridge {
 }
 
 struct CompanionNavigationPolicy: Equatable {
+    /// AuthKit challenges need cross-origin HTTPS frames. This applies only to
+    /// an existing subframe, never top-level navigation or window.open.
+    static func subframeDecision(for url: URL) -> WKNavigationActionPolicy {
+        switch url.scheme?.lowercased() {
+        case "https":
+            return url.host?.isEmpty == false && url.user == nil && url.password == nil ? .allow : .cancel
+        case "about":
+            // URLComponents retains the opaque path that Foundation's URL.path omits.
+            let page = URLComponents(url: url, resolvingAgainstBaseURL: false)?.path
+                .prefix { $0 != "#" && $0 != "?" }
+            return page == "blank" || page == "srcdoc" ? .allow : .cancel
+        case "data", "blob":
+            return .allow
+        default:
+            return .cancel
+        }
+    }
+
+    static func externalLinkURL(_ url: URL, isMainFrame: Bool,
+                                navigationType: WKNavigationType) -> URL? {
+        guard isMainFrame, navigationType == .linkActivated else { return nil }
+        return externalURL(url)
+    }
+
     /// Action policy owns navigation origins. Response restrictions apply only
     /// to downloads, not displayable auth pages or iframe documents.
     static func responseDecision(response: URLResponse, canShowMIMEType: Bool,

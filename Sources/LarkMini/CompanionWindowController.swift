@@ -498,13 +498,17 @@ final class CompanionWindowController: NSWindowController, WKNavigationDelegate,
             }
             return
         }
+        if navigationAction.targetFrame?.isMainFrame == false {
+            decisionHandler(CompanionNavigationPolicy.subframeDecision(for: url))
+            return
+        }
         switch policy?.decision(for: url) ?? .allow {
         case .allow:
             decisionHandler(navigationAction.shouldPerformDownload ? .download : .allow)
         case .external:
-            if navigationAction.navigationType == .linkActivated,
-               navigationAction.targetFrame?.isMainFrame == true,
-               let safe = CompanionNavigationPolicy.externalURL(url) {
+            if let safe = CompanionNavigationPolicy.externalLinkURL(
+                url, isMainFrame: navigationAction.targetFrame?.isMainFrame == true,
+                navigationType: navigationAction.navigationType) {
                 NSWorkspace.shared.open(safe)
             }
             decisionHandler(.cancel)
