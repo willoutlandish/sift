@@ -69,10 +69,12 @@ struct OllieTodayShop: Identifiable, Equatable {
 struct OllieAllShopProgress: Identifiable, Equatable {
     let currency: String?
     let pace: CompanionShopPace
+    var others: [CompanionPaceCurrencyTotal] = []
+    var monthLeft: String? = nil
 
     var id: String { currency ?? "all" }
     var label: String { currency.map { "All shops · \($0)" } ?? "All shops" }
-    var pill: OlliePacePill? { OlliePacePill.make(pace) }
+    var pill: OlliePacePill? { nil }
     var bar: CompanionPaceBarModel { CompanionPaceBarModel(pace) }
 }
 
@@ -177,67 +179,22 @@ struct OllieTodayModel: Equatable {
     private static func allShopProgress(from shops: [CompanionShopPace],
                                         totals: CompanionPaceTotals?,
                                         metricsThrough: String?) -> [OllieAllShopProgress] {
-        if let totals, !totals.byCurrency.isEmpty {
-            return totals.byCurrency.map { total in
-                // Portfolio totals omit expected_by_today; the tick is the month's elapsed percentage of goal.
-                let expected: Double? = {
-                    guard let goal = total.goal, goal > 0, let elapsed = totals.elapsedPct else { return nil }
-                    return goal * (elapsed / 100)
-                }()
-                let gap = (total.mtd != nil && expected != nil) ? total.mtd! - expected! : nil
-                let progress = (total.mtd != nil && (total.goal ?? 0) > 0)
-                    ? total.mtd! / total.goal! * 100 : nil
-                let status: String
-                if total.goal == nil || (total.goal ?? 0) <= 0 {
-                    status = "no_target"
-                } else if total.mtd == nil || expected == nil {
-                    status = "no_data"
-                } else if let gap, gap < 0 {
-                    status = "behind"
-                } else if total.mtd! >= total.goal! {
-                    status = "ahead"
-                } else {
-                    status = "on_track"
-                }
-                return OllieAllShopProgress(
-                    currency: total.currency,
-                    pace: CompanionShopPace(resource: "all-\(total.currency ?? "none")", name: "All shops",
-                                            currency: total.currency, mtd: total.mtd, goal: total.goal,
-                                            expectedByToday: expected, gap: gap,
-                                            progressPct: progress, paceStatus: status, basis: "total",
-                                            metricsThrough: metricsThrough))
-            }.sorted { ($0.currency ?? "") < ($1.currency ?? "") }
-        }
-        let grouped = Dictionary(grouping: shops, by: \.currency)
-        return grouped.map { currency, group in
-            let mtd = group.compactMap(\.mtd)
-            let goals = group.compactMap(\.goal)
-            let expected = group.compactMap(\.expectedByToday)
-            let gaps = group.compactMap(\.gap)
-            let actual = mtd.isEmpty ? nil : mtd.reduce(0, +)
-            let goal = goals.isEmpty ? nil : goals.reduce(0, +)
-            let expectedByToday = expected.isEmpty ? nil : expected.reduce(0, +)
-            let gap = gaps.isEmpty ? nil : gaps.reduce(0, +)
-            let status: String
-            if goal == nil || (goal ?? 0) <= 0 {
-                status = "no_target"
-            } else if actual == nil || expectedByToday == nil {
-                status = "no_data"
-            } else if let gap, gap < 0 {
-                status = "behind"
-            } else if let actual, let goal, actual >= goal {
-                status = "ahead"
-            } else {
-                status = "on_track"
-            }
-            let progress = (actual != nil && (goal ?? 0) > 0) ? (actual! / goal! * 100) : nil
-            return OllieAllShopProgress(
-                currency: currency,
-                pace: CompanionShopPace(resource: "all-\(currency ?? "none")", name: "All shops",
-                                        currency: currency, mtd: actual, goal: goal,
-                                        expectedByToday: expectedByToday, gap: gap,
-                                        progressPct: progress, paceStatus: status, basis: "total"))
-        }.sorted { ($0.currency ?? "") < ($1.currency ?? "") }
+        // Mirrors #19458 home/shops-dashboard.ts dashboardTotals: never combine currencies.
+        let grouped = Dictionary(grouping: shops.filter { $0.currency != nil && $0.mtd != nil }, by: { $0.currency! })
+        let ordered = grouped.map { currency, group in
+            CompanionPaceCurrencyTotal(currency: currency, mtd: group.compactMap(\.mtd).reduce(0, +), goal: nil)
+        }.sorted { ($0.mtd ?? 0) > ($1.mtd ?? 0) }
+        guard let main = ordered.first, let currency = main.currency, let group = grouped[currency] else { return [] }
+        let targeted = group.filter { $0.goal != nil && $0.mtd != nil && $0.progressPct != nil }
+        let goal = targeted.isEmpty ? nil : targeted.compactMap(\.goal).reduce(0, +)
+        let sales = targeted.compactMap(\.mtd).reduce(0, +)
+        let pct = (goal ?? 0) != 0 ? (sales / goal! * 100).rounded() : nil
+        let expected = goal.flatMap { goal in totals?.elapsedPct.map { goal * $0 / 100 } }
+        return [OllieAllShopProgress(currency: currency,
+            pace: CompanionShopPace(resource: "all", name: "All shops", currency: currency, mtd: main.mtd,
+                goal: goal, expectedByToday: expected, gap: nil, progressPct: pct,
+                paceStatus: "", basis: "total", metricsThrough: metricsThrough),
+            others: Array(ordered.dropFirst()), monthLeft: totals?.monthLeft)]
     }
 
     private static func rank(_ status: String?) -> Int {
@@ -257,12 +214,13 @@ struct OllieActivityNode: Equatable {
     var title: String {
         let role = agent.role?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         guard !role.isEmpty else { return agent.name }
-        return role.replacingOccurrences(of: "-", with: " ").lowercased()
+        let normalized = role.replacingOccurrences(of: "-", with: " ").replacingOccurrences(of: "_", with: " ")
+        return normalized.prefix(1).uppercased() + normalized.dropFirst()
     }
 
     var tone: OllieTone {
         switch agent.state {
-        case "working": return .blue
+        case "working", "answering": return .blue
         case "waiting": return .amber
         case "failed": return .red
         case "idle": return .green
@@ -274,9 +232,9 @@ struct OllieActivityNode: Equatable {
     var pill: String {
         switch agent.state {
         case "working", "waiting", "failed", "idle", "paused", "off":
-            return agent.state.uppercased()
+            return agent.state.capitalized
         default:
-            return agent.state.isEmpty ? "IDLE" : agent.state.uppercased()
+            return agent.state.isEmpty ? "Idle" : agent.state.capitalized
         }
     }
 
@@ -287,7 +245,7 @@ struct OllieActivityNode: Equatable {
         if let partial = agent.partial48h { parts.append("\(partial) partial") }
         if let failed = agent.failed48h { parts.append("\(failed) failed") }
         if let next = agent.nextCheckAt, !CompanionActivityFormat.until(next).isEmpty {
-            parts.append("next check \(CompanionActivityFormat.until(next))")
+            parts.append("Next check \(CompanionActivityFormat.until(next))")
         }
         return parts.isEmpty ? nil : parts.joined(separator: " · ")
     }

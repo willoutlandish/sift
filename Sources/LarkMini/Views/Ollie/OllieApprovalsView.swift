@@ -233,14 +233,17 @@ private struct OllieApprovalItemRow: View {
                     .lineLimit(3).fixedSize(horizontal: false, vertical: true)
             }
             HStack(spacing: 4) {
-                Text(item.label).foregroundStyle(OllieStyle.muted)
-                Text("· \(item.age)").foregroundStyle(OllieStyle.muted)
+                Text(item.assigneeLine).foregroundStyle(OllieStyle.muted)
                 if item.source == "creator_dm_reply" && OllieApprovalsModel.removedWithinDay(item) {
                     Text("Removed tomorrow if nobody decides").foregroundStyle(OllieStyle.red)
                 }
             }
             .font(.system(size: 11))
 
+            if let text = item.recommendation { Text("Recommended: " + text).font(.system(size: 12)) }
+            if let band = item.priorityBand, band != "now" {
+                Text(band == "soon" ? "Do this soon" : "Can wait").font(.system(size: 11))
+            }
             if let draft = item.payloadPreview {
                 Text(draft).font(.system(size: 12)).fixedSize(horizontal: false, vertical: true)
             }
@@ -248,12 +251,16 @@ private struct OllieApprovalItemRow: View {
                 Text("To: \(item.recipients.joined(separator: ", "))").font(.system(size: 11))
             }
             if readOnly {
-                Button("Open in Companion") { store.openCompanion(path: item.clickPath) }
+                Button("Open item") { store.openApprovalItem(item) }
                     .buttonStyle(.plain).font(.system(size: 11.5, weight: .medium))
                     .foregroundStyle(OllieStyle.dim)
             } else if item.canAnswer {
                 HStack(spacing: 8) {
-                    ForEach(item.answers, id: \.self) { answer in
+                    if let answer = item.recommendationAnswer {
+                        Button("Take recommendation") { confirming = (item.id, answer) }
+                            .buttonStyle(.plain).disabled(busy)
+                    }
+                    ForEach(item.answers.filter { $0 != item.recommendationAnswer }, id: \.self) { answer in
                         if (answer == "approve" && item.canApprove) || answer == "skip" {
                             Button(label(answer)) { confirming = (item.id, answer) }
                                 .buttonStyle(.plain)
@@ -266,14 +273,14 @@ private struct OllieApprovalItemRow: View {
                                 .foregroundStyle(OllieStyle.dim)
                         }
                     }
-                    Button("Open in Companion") { store.openCompanion(path: item.clickPath) }
+                    Button("Open item") { store.openApprovalItem(item) }
                         .buttonStyle(.plain).font(.system(size: 11.5, weight: .medium))
                         .foregroundStyle(OllieStyle.dim)
                     Spacer(minLength: 0)
                     if busy { OllieSpinner() }
                 }
             } else {
-                Button("Open in Companion") { store.openCompanion(path: item.clickPath) }
+                Button("Open item") { store.openApprovalItem(item) }
                     .buttonStyle(.plain).font(.system(size: 11.5, weight: .medium))
                     .foregroundStyle(OllieStyle.dim)
             }
@@ -318,7 +325,7 @@ private struct OllieApprovalItemRow: View {
 
     private func confirmBlock(_ answer: String) -> some View {
         VStack(alignment: .leading, spacing: 4) {
-            Text(answer == "approve" ? "Approve this item?" : "Decline this item?")
+            Text(answer == "change" ? "Take this recommendation?" : (answer == "approve" ? "Approve this item?" : "Decline this item?"))
                 .font(.system(size: 11.5, weight: .semibold)).foregroundStyle(OllieStyle.text)
             Text("\(item.title) · \(item.label)").font(.system(size: 10.5))
                 .foregroundStyle(OllieStyle.dim).lineLimit(2)
@@ -327,7 +334,7 @@ private struct OllieApprovalItemRow: View {
                     .lineLimit(4).fixedSize(horizontal: false, vertical: true)
             }
             HStack(spacing: 10) {
-                Button(answer == "approve" ? "Confirm approve" : "Confirm decline") { submit(answer) }
+                Button(answer == "change" ? "Confirm recommendation" : (answer == "approve" ? "Confirm approve" : "Confirm decline")) { submit(answer) }
                     .buttonStyle(.plain).font(.system(size: 11, weight: .semibold))
                     .foregroundStyle(OllieStyle.lime).disabled(busy)
                 Button("Cancel") { confirming = nil }
@@ -349,7 +356,8 @@ private struct OllieApprovalItemRow: View {
         busy = true
         message = nil
         Task { @MainActor in
-            let outcome = await CompanionApprovalsActions.shared.submit(item: item, answer: answer)
+            let outcome = await CompanionApprovalsActions.shared.submit(item: item, answer: answer,
+                    text: answer == "change" ? item.recommendation : nil)
             busy = false
             confirming = nil
             if outcome.remove {

@@ -53,6 +53,7 @@ struct CompanionPaceTotals: Equatable {
     let behind: Int?
     let unavailableShops: Int?
     let elapsedPct: Double?
+    var monthLeft: String? = nil
 }
 
 struct CompanionPacePayload: Equatable {
@@ -85,70 +86,13 @@ enum CompanionPaceState: Equatable {
     }
 }
 
-enum CompanionPaceTone: Equatable {
-    case green
-    case red
-    case grey
-}
-
 struct CompanionPaceBarModel: Equatable {
-    let actual: Double?
-    let goal: Double?
-    let expected: Double?
-    let progressPct: Double?
-    let currency: String?
-    let status: String
     let actualFraction: Double
     let expectedFraction: Double?
-    let text: String
-    let statusLabel: String
-    let tone: CompanionPaceTone
 
     init(_ pace: CompanionShopPace) {
-        actual = pace.mtd
-        goal = pace.goal
-        expected = pace.expectedByToday
-        progressPct = pace.progressPct
-        currency = pace.currency
-        status = pace.paceStatus
-
-        let goalValue = pace.goal ?? 0
-        actualFraction = goalValue > 0 ? Self.clamp((pace.mtd ?? 0) / goalValue) : 0
-        expectedFraction = goalValue > 0 ? pace.expectedByToday.map { Self.clamp($0 / goalValue) } : nil
-
-        switch pace.paceStatus {
-        case "on_track": statusLabel = "On track"; tone = .green
-        case "ahead": statusLabel = "Ahead"; tone = .green
-        case "behind": statusLabel = "Behind"; tone = .red
-        case "too_early": statusLabel = "Too early"; tone = .grey
-        case "no_target": statusLabel = "No target"; tone = .grey
-        default: statusLabel = "No data"; tone = .grey
-        }
-
-        if pace.goal == nil || goalValue <= 0 {
-            text = "No target"
-        } else if pace.mtd == nil || pace.expectedByToday == nil {
-            text = "No data"
-        } else {
-            let actualText = Self.money(pace.mtd ?? 0, currency: pace.currency)
-            let expectedText = Self.money(pace.expectedByToday ?? 0, currency: pace.currency)
-            let percent = pace.progressPct.map { Int($0.rounded()) }
-            text = percent.map { "\(actualText) of \(expectedText) expected by today (\($0)%)" }
-                ?? "\(actualText) of \(expectedText) expected by today"
-        }
-    }
-
-    private static func clamp(_ value: Double) -> Double {
-        min(1, max(0, value))
-    }
-
-    private static func money(_ value: Double, currency: String?) -> String {
-        let formatter = NumberFormatter()
-        formatter.numberStyle = currency == nil ? .decimal : .currency
-        if let currency { formatter.currencyCode = currency }
-        formatter.maximumFractionDigits = 0
-        formatter.minimumFractionDigits = 0
-        return formatter.string(from: NSNumber(value: value)) ?? String(Int(value.rounded()))
+        actualFraction = min(1, max(0, (pace.progressPct ?? 0) / 100))
+        expectedFraction = (pace.goal ?? 0) > 0 ? pace.expectedByToday.map { min(1, max(0, $0 / pace.goal!)) } : nil
     }
 }
 
@@ -232,14 +176,14 @@ enum CompanionPace {
                 }, targetCurrency: gmv.target_currency)
             if shops[resource] == nil { shops[resource] = pace }
         }
-        let totals = list.totals.map { totals in
+        let totals = list.month.map { _ in list.totals }.map { totals in
             CompanionPaceTotals(
-                byCurrency: (totals.gmv_by_currency ?? []).map {
+                byCurrency: (totals?.gmv_by_currency ?? []).map {
                     CompanionPaceCurrencyTotal(currency: $0.currency, mtd: $0.mtd, goal: $0.goal)
                 },
-                behind: totals.behind,
-                unavailableShops: totals.gmv_unavailable_shops,
-                elapsedPct: list.month?.elapsed_pct)
+                behind: totals?.behind,
+                unavailableShops: totals?.gmv_unavailable_shops,
+                elapsedPct: list.month?.elapsed_pct, monthLeft: list.month?.left)
         }
         let metricsThrough = scoped.compactMap { $0.day?.date }.max()
         return CompanionPacePayload(shops: shops, totals: totals, metricsThrough: metricsThrough)
@@ -248,6 +192,13 @@ enum CompanionPace {
     private struct Portfolio: Decodable {
         struct Month: Decodable {
             let elapsed_pct: Double?
+            let days_left: Int?
+            let days_in_month: Int?
+            let day: Int?
+            var left: String? {
+                guard let days = days_left ?? days_in_month.flatMap({ total in day.map { total - $0 } }) else { return nil }
+                return days <= 0 ? "The month is over" : (days == 1 ? "1 day left" : "\(days) days left")
+            }
         }
         struct Shop: Decodable {
             struct GMV: Decodable {

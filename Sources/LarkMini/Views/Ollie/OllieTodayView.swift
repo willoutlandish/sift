@@ -218,11 +218,17 @@ struct OllieTodayView: View {
                         .background(pill.tone.color.opacity(0.15), in: Capsule())
                 }
             }
+            Text(CompanionPace.compactMoney(progress.pace.mtd, currency: progress.currency) + " sales this month")
+                .font(.system(size: 18, weight: .semibold)).padding(.top, 8)
+            ForEach(progress.others, id: \.currency) { other in
+                Text(CompanionPace.compactMoney(other.mtd, currency: other.currency)).font(.system(size: 11))
+            }
+            if let left = progress.monthLeft { Text(left).font(.system(size: 11)) }
             OlliePaceBar(model: progress.bar, tone: progress.pill?.tone ?? .muted)
                 .padding(.top, 9)
             HStack {
-                if let mtd = progress.pace.mtd {
-                    Text("\(Int((progress.pace.progressPct ?? 0).rounded()))% of \(CompanionPace.compactMoney(progress.pace.goal, currency: progress.currency)) month target")
+                if let pct = progress.pace.progressPct {
+                    Text("\(Int(pct.rounded()))% of \(CompanionPace.compactMoney(progress.pace.goal, currency: progress.currency)) month target")
                 } else if progress.pace.goal != nil {
                     Text("No sales data · goal \(CompanionPace.compactMoney(progress.pace.goal, currency: progress.currency))")
                 } else {

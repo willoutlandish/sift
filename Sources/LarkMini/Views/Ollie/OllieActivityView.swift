@@ -144,7 +144,8 @@ struct OllieActivityView: View {
                 }
                 if let last = agent.lastRunSummary {
                     HStack(spacing: 4) {
-                        Text("last: \(last)").lineLimit(1)
+                        Text(last).lineLimit(1)
+                        if let outcome = agent.lastRunOutcome { Text("· " + CompanionActivityFormat.outcome(outcome)) }
                         if let at = agent.lastRunAt, !CompanionActivityFormat.ago(at).isEmpty {
                             Text("· " + CompanionActivityFormat.ago(at))
                         }
@@ -164,7 +165,7 @@ struct OllieActivityView: View {
                 }
                 .padding(.top, 1)
                 if let drafts = agent.draftsWaiting, drafts > 0 {
-                    Text("\(drafts) drafts waiting")
+                    Text("\(drafts) \(drafts == 1 ? "draft" : "drafts") waiting for a person")
                         .font(.system(size: 10.5)).foregroundStyle(OllieStyle.amber)
                         .padding(.horizontal, 5).padding(.vertical, 0)
                         .overlay(RoundedRectangle(cornerRadius: 4).strokeBorder(OllieStyle.amber))

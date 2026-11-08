@@ -1073,6 +1073,16 @@ final class Store: ObservableObject {
         CompanionWindowController.shared.open(baseURL: base, path: path, activate: activate)
     }
 
+    func openApprovalItem(_ item: CompanionTodoItem) {
+        guard let link = item.itemLink else { openCompanion(path: item.clickPath); return }
+        if link.hasPrefix("/"), let raw = stateFile.reload().companionURL,
+           let base = CompanionConfig.validatedURL(raw) {
+            CompanionWindowController.shared.open(baseURL: base, path: link, allowAnyPath: true)
+        } else if let url = URL(string: link) {
+            NSWorkspace.shared.open(url)
+        }
+    }
+
     func openCompanionSignIn() {
         let state = stateFile.reload()
         companionURL = state.companionURL

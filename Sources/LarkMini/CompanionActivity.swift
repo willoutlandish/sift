@@ -89,10 +89,9 @@ struct CompanionActivityAgent: Identifiable, Equatable {
     let current: String
     let since: String?
     let waiting: String?
-    let lines: [String]
-    let latestAt: String?
     let lastRunSummary: String?
     let lastRunAt: String?
+    var lastRunOutcome: String? = nil
     let sparkline: [CompanionRunMark]
     let runs48h: Int?
     let ok48h: Int?
@@ -149,11 +148,7 @@ enum CompanionActivityParser {
             let activity = eventBodies[tab.agent]
                 .flatMap { $0.data(using: .utf8) }
                 .flatMap { try? JSONDecoder().decode(CompanionAgentActivity.self, from: $0) }
-            let events = activity?.events ?? []
             let runs = activity?.runs ?? []
-            let lines = events.sorted { ($0.at ?? "") > ($1.at ?? "") }
-                .compactMap { nonEmpty($0.text) }
-                .prefix(3)
             let now = tab.now
             let current = nonEmpty(now?.step?.text) ?? nonEmpty(now?.label)
                 ?? nonEmpty(tab.waiting?.label) ?? nonEmpty(tab.state) ?? "Idle"
@@ -182,10 +177,9 @@ enum CompanionActivityParser {
                 current: current,
                 since: since,
                 waiting: nonEmpty(tab.waiting?.label),
-                lines: Array(lines),
-                latestAt: since ?? events.compactMap(\.at).max(),
                 lastRunSummary: lastRunSummary,
                 lastRunAt: lastRunAt,
+                lastRunOutcome: lastRun?.outcome ?? lastRun?.state,
                 sparkline: Array(sparkline),
                 runs48h: drawer?.runs_48h,
                 ok48h: drawer?.ok_48h,
@@ -204,15 +198,29 @@ enum CompanionActivityParser {
 }
 
 enum CompanionActivityFormat {
-    static func ago(_ value: String?) -> String {
+    // Mirrors worker-summary.ts agoWords and untilShort.
+    static func ago(_ value: String?, now: Date = Date()) -> String {
         guard let value, let date = parse(value) else { return "" }
-        return CompanionTodos.ageText(max(0, Int(Date().timeIntervalSince(date))))
+        let minutes = max(0, Int(floor(now.timeIntervalSince(date) / 60 + 0.5)))
+        if minutes < 1 { return "just now" }
+        if minutes < 60 { return "\(minutes) min ago" }
+        let hours = Int(floor(Double(minutes) / 60 + 0.5))
+        return hours < 48 ? "\(hours) h ago" : "\(Int(floor(Double(hours) / 24 + 0.5))) days ago"
     }
 
-    static func until(_ value: String?) -> String {
+    static func until(_ value: String?, now: Date = Date()) -> String {
         guard let value, let date = parse(value) else { return "" }
-        let seconds = Int(date.timeIntervalSinceNow)
-        return seconds <= 0 ? "due" : "in " + CompanionTodos.ageText(seconds)
+        let minutes = Int(floor(date.timeIntervalSince(now) / 60 + 0.5))
+        func span(_ n: Int) -> String { n >= 90 ? "\(Int(floor(Double(n) / 60 + 0.5))) h" : "\(n) min" }
+        if minutes >= 1 { return "in " + span(minutes) }
+        if minutes > -2 { return "now" }
+        return span(-minutes) + " late"
+    }
+
+    static func outcome(_ value: String) -> String {
+        ["running": "Running", "ok": "Done", "partial": "Finished with gaps",
+         "blocked": "Blocked", "timeout": "Timed out", "provider_error": "Model failed",
+         "infra_error": "Runner failed"][value] ?? value
     }
 
     static func parse(_ value: String) -> Date? {

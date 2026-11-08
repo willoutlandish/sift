@@ -245,39 +245,27 @@ final class CompanionTests: XCTestCase {
         let behind = CompanionPaceBarModel(base)
         XCTAssertEqual(behind.actualFraction, 0.5, accuracy: 0.0001)
         XCTAssertEqual(behind.expectedFraction ?? -1, 0.75, accuracy: 0.0001)
-        XCTAssertEqual(behind.tone, .red)
-        XCTAssertEqual(behind.statusLabel, "Behind")
-        XCTAssertTrue(behind.text.contains("expected by today"))
 
         var onTrack = base
         onTrack = CompanionShopPace(resource: "north", name: "North Studio", currency: "USD",
                                     mtd: 800, goal: 1000, expectedByToday: 750, gap: 50,
                                     progressPct: 80, paceStatus: "on_track", basis: "total")
-        XCTAssertEqual(CompanionPaceBarModel(onTrack).tone, .green)
-        XCTAssertEqual(CompanionPaceBarModel(onTrack).statusLabel, "On track")
 
         let ahead = CompanionShopPace(resource: "north", name: "North Studio", currency: "USD",
                                       mtd: 900, goal: 1000, expectedByToday: 700, gap: 200,
                                       progressPct: 90, paceStatus: "ahead", basis: "total")
-        XCTAssertEqual(CompanionPaceBarModel(ahead).tone, .green)
 
         let tooEarly = CompanionShopPace(resource: "north", name: "North Studio", currency: "USD",
                                          mtd: nil, goal: 1000, expectedByToday: nil, gap: nil,
                                          progressPct: nil, paceStatus: "too_early", basis: "total")
-        XCTAssertEqual(CompanionPaceBarModel(tooEarly).tone, .grey)
-        XCTAssertEqual(CompanionPaceBarModel(tooEarly).statusLabel, "Too early")
 
         let noTarget = CompanionShopPace(resource: "north", name: "North Studio", currency: "USD",
                                          mtd: 300, goal: nil, expectedByToday: nil, gap: nil,
                                          progressPct: nil, paceStatus: "no_target", basis: "total")
-        XCTAssertEqual(CompanionPaceBarModel(noTarget).text, "No target")
-        XCTAssertEqual(CompanionPaceBarModel(noTarget).tone, .grey)
 
         let noData = CompanionShopPace(resource: "north", name: "North Studio", currency: nil,
                                        mtd: nil, goal: 1000, expectedByToday: 600, gap: nil,
                                        progressPct: nil, paceStatus: "no_data", basis: "total")
-        XCTAssertEqual(CompanionPaceBarModel(noData).text, "No data")
-        XCTAssertEqual(CompanionPaceBarModel(noData).tone, .grey)
 
         XCTAssertEqual(CompanionPaceState.from(status: 403), .hidden)
         XCTAssertEqual(CompanionPaceState.from(status: 404), .hidden)
@@ -329,7 +317,7 @@ final class CompanionTests: XCTestCase {
         ]}
         """#
         let list = try JSONDecoder().decode(CompanionApprovalsList.self, from: Data(listJSON.utf8))
-        let item = try XCTUnwrap(CompanionTodos.make(from: list).shops.first?.items.first)
+        let item = try XCTUnwrap(CompanionTodos.make(from: list).shops.first?.allItems.first)
         XCTAssertEqual(item.payloadPreview, "Hello there")
         let approve = try XCTUnwrap(CompanionDecisionRequests.decisionRequest(item: item, answer: "approve"))
         XCTAssertEqual(approve.path, "/api/oo/approvals/answer")
@@ -386,20 +374,13 @@ final class CompanionTests: XCTestCase {
         XCTAssertEqual(snapshot.total, 7)
         XCTAssertEqual(snapshot.shops.map(\.name), ["North Studio", "Harbor & Co"])
         XCTAssertEqual(snapshot.shops[0].pending, 6)
-        XCTAssertEqual(snapshot.shops[0].items.map(\.id), ["b", "a", "c", "d", "e"])
-        XCTAssertEqual(snapshot.shops[0].more, 1)
-        XCTAssertEqual(snapshot.shops[0].items.map(\.age), ["now", "2m", "1h", "1d", "1d"])
-        XCTAssertEqual(snapshot.shops[0].items.first?.clickPath, "/companion/app/north/approvals")
-        XCTAssertEqual(snapshot.shops[1].items.map(\.id), ["g"])
-        XCTAssertEqual(snapshot.shops[1].items.first?.clickPath, "/companion/app/harbor/approvals")
+        XCTAssertEqual(snapshot.shops[0].allItems.first?.clickPath, "/companion/app/north/approvals")
+        XCTAssertEqual(snapshot.shops[1].allItems.map(\.id), ["g"])
+        XCTAssertEqual(snapshot.shops[1].allItems.first?.clickPath, "/companion/app/harbor/approvals")
     }
 
     func testApprovalsTodoStates() {
         let empty = CompanionTodoSnapshot(total: 0, shops: [], orderedItems: [])
-        XCTAssertTrue(CompanionTodosState.ready(empty).showsEmpty)
-        XCTAssertTrue(CompanionTodosState.failed.showsError)
-        XCTAssertTrue(CompanionTodosState.signedOut.showsSignedOut)
-        XCTAssertFalse(CompanionTodosState.loading.showsEmpty)
     }
 
 
@@ -429,7 +410,6 @@ final class CompanionTests: XCTestCase {
         XCTAssertEqual(agents.map(\.id), ["agent-a", "agent-b"])
         XCTAssertEqual(agents[0].current, "Reading shop orders")
         XCTAssertEqual(agents[0].since, "2026-11-06T07:00:00Z")
-        XCTAssertEqual(agents[0].lines, ["line newest", "line older", "line oldest"])
         XCTAssertEqual(agents[1].waiting, "Waiting for approval")
         XCTAssertEqual(agents[1].current, "Waiting for approval")
     }

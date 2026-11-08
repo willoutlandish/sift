@@ -35,6 +35,11 @@ struct CompanionApprovalsList: Decodable {
             let target: Target?
         }
 
+        struct Assignee: Decodable { let label: String?; let seat: String? }
+        struct DecidedBy: Decodable { let reason: String? }
+        let owner: Assignee?
+        let case_assignee: Assignee?
+        let decided_by: DecidedBy?
         let id: String
         let source: String?
         let kind: String?
@@ -92,6 +97,42 @@ enum CompanionApprovalEligibility {
             (!isSendItem(item) || (!(item.send_version ?? "").isEmpty &&
                 !(draftText(item) ?? "").isEmpty && recipientsOf(item).count == 1))
     }
+    static func recommendation(_ item: CompanionApprovalsList.Item) -> String? {
+        let value = item.recommendation?.value
+        if let value, ["approve", "skip"].contains(value), item.can_answer == true,
+           cardAnswers(item).contains(value), value != "approve" || canApprove(item) { return value }
+        if value == nil, item.can_answer == true, !isSendItem(item), cardAnswers(item).contains("change"),
+           !(item.recommendation?.text?.trimmingCharacters(in: .whitespacesAndNewlines) ?? "").isEmpty { return "change" }
+        return nil
+    }
+
+    static func assigneeLine(_ item: CompanionApprovalsList.Item) -> String {
+        let assignee = item.case_assignee ?? item.owner
+        let seat = assignee?.seat?.replacingOccurrences(of: #"^AE_(FT|PT)$"#, with: "AE", options: .regularExpression)
+            .replacingOccurrences(of: "_", with: " ")
+        var name = assignee?.label ?? ""
+        if let seat, !seat.isEmpty, name.hasSuffix(" (" + seat + ")") { name = String(name.dropLast(seat.count + 3)) }
+        return [name.isEmpty ? nil : "Waiting on " + name, seat, ageLabel(item.age_seconds).lowercased()]
+            .compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: " · ")
+    }
+
+    static func ageLabel(_ seconds: Int?) -> String {
+        guard let seconds else { return "" }
+        if seconds < 60 { return "Just now" }
+        let n = seconds < 3600 ? seconds / 60 : (seconds < 86400 ? seconds / 3600 : seconds / 86400)
+        let unit = seconds < 3600 ? "minute" : (seconds < 86400 ? "hour" : "day")
+        return "\(n) \(unit)" + (n == 1 ? "" : "s")
+    }
+
+    static func safeHref(_ value: String?) -> String? {
+        guard let value, !value.isEmpty,
+              !value.unicodeScalars.contains(where: { $0.value <= 32 || $0.value == 127 || $0.value == 92 }) else { return nil }
+        if value.hasPrefix("/") { return value.hasPrefix("//") ? nil : value }
+        guard let url = URL(string: value), url.scheme == "https", url.host != nil,
+              url.user == nil, url.password == nil else { return nil }
+        return value
+    }
+
 }
 
 struct CompanionDecisionTarget: Equatable {
@@ -122,6 +163,10 @@ struct CompanionTodoItem: Identifiable, Equatable {
     let expiresAt: String?
     let ageSeconds: Int?
     let recommendation: String?
+    let recommendationAnswer: String?
+    let assigneeLine: String
+    let decidedReason: String?
+    let itemLink: String?
     let shopName: String
     let resource: String
 
@@ -141,9 +186,11 @@ struct CompanionTodoItem: Identifiable, Equatable {
     }
 
     var reason: String? {
-        [statusReason, needsYouBecause, recommendation, priorityReasons.first]
-            .compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }
-            .first { !$0.isEmpty }
+        let waitingOnly = ageSeconds != nil && (statusReason?.trimmingCharacters(in: .whitespacesAndNewlines)
+            .range(of: #"^waiting\s+(?:for\s+)?(?:\d+(?:\.\d+)?\s*(?:s|sec(?:ond)?s?|m|min(?:ute)?s?|h|hours?|d|days?)\s*)+\.?$"#,
+                   options: [.regularExpression, .caseInsensitive]) != nil)
+        return [needsYouBecause, waitingOnly ? nil : statusReason, decidedReason]
+            .compactMap { $0 }.first { !$0.isEmpty }
     }
 
     var isOlder: Bool { (ageSeconds ?? 0) >= 7 * 86_400 }
@@ -167,9 +214,7 @@ struct CompanionTodoShop: Identifiable, Equatable {
     let resource: String
     let name: String
     let pending: Int
-    let items: [CompanionTodoItem]
     let allItems: [CompanionTodoItem]
-    let more: Int
 
     var id: String { resource.isEmpty ? name : resource }
 }
@@ -188,13 +233,7 @@ enum CompanionTodosState: Equatable {
     case signedOut
     case failed
 
-    var showsEmpty: Bool {
-        if case .ready(let snapshot) = self { return snapshot.total == 0 }
-        return false
-    }
 
-    var showsError: Bool { self == .failed }
-    var showsSignedOut: Bool { self == .signedOut }
 }
 
 struct CompanionApproval: Equatable {
@@ -244,8 +283,6 @@ enum CompanionApprovals {
 }
 
 enum CompanionTodos {
-    static let pageSize = 5
-
     static func make(from list: CompanionApprovalsList) -> CompanionTodoSnapshot {
         let ranks = Dictionary((list.order ?? []).enumerated().map { ($1, $0) },
                                uniquingKeysWith: { first, _ in first })
@@ -285,6 +322,10 @@ enum CompanionTodos {
                         expiresAt: item.expires_at,
                         ageSeconds: item.age_seconds,
                         recommendation: item.recommendation?.text,
+                        recommendationAnswer: CompanionApprovalEligibility.recommendation(item),
+                        assigneeLine: CompanionApprovalEligibility.assigneeLine(item),
+                        decidedReason: item.decided_by?.reason,
+                        itemLink: CompanionApprovalEligibility.safeHref(item.link),
                         shopName: shopName ?? shop.name,
                         resource: resource ?? shop.resource)
                     items.append((items.count, todo))
@@ -300,9 +341,7 @@ enum CompanionTodos {
             }.map(\.item)
             shops.append(CompanionTodoShop(resource: shop.resource, name: shop.name,
                                            pending: ordered.count,
-                                           items: Array(ordered.prefix(pageSize)),
-                                           allItems: ordered,
-                                           more: max(0, ordered.count - pageSize)))
+                                           allItems: ordered))
         }
 
         let allItems = shops.flatMap(\.allItems)
@@ -331,7 +370,7 @@ enum CompanionTodos {
 }
 
 enum CompanionDecisionRequests {
-    static func decisionRequest(item: CompanionTodoItem, answer: String) -> CompanionDecisionRequest? {
+    static func decisionRequest(item: CompanionTodoItem, answer: String, text: String? = nil) -> CompanionDecisionRequest? {
         guard let target = item.decision, item.canAnswer, item.answers.contains(answer),
               answer != "approve" || item.canApprove else { return nil }
             let rows: [[String: Any]] = [[
@@ -339,9 +378,9 @@ enum CompanionDecisionRequests {
                 "version": target.version ?? NSNull(),
                 "send_version": target.sendVersion ?? NSNull()
             ]]
-            return CompanionDecisionRequest(
-                path: "/api/oo/approvals/answer",
-                body: ["items": rows, "answer": answer])
+            var body: [String: Any] = ["items": rows, "answer": answer]
+            if let text { body["text"] = text }
+            return CompanionDecisionRequest(path: "/api/oo/approvals/answer", body: body)
 
     }
 
@@ -385,11 +424,11 @@ enum CompanionDecisionOutcomeParser {
 final class CompanionApprovalsActions {
     static let shared = CompanionApprovalsActions()
 
-    func submit(item: CompanionTodoItem, answer: String) async -> CompanionDecisionOutcome {
+    func submit(item: CompanionTodoItem, answer: String, text: String? = nil) async -> CompanionDecisionOutcome {
         if CompanionApprovalsMonitor.shared.isReadOnly {
             return CompanionDecisionOutcome(message: CompanionWriteGuard.refusal, remove: false)
         }
-        guard let request = CompanionDecisionRequests.decisionRequest(item: item, answer: answer) else {
+        guard let request = CompanionDecisionRequests.decisionRequest(item: item, answer: answer, text: text) else {
             return CompanionDecisionOutcome(message: "This item can't be answered here.", remove: false)
         }
         let reply = await CompanionApprovalsMonitor.shared.postJSON(path: request.path, body: request.body)
@@ -716,47 +755,26 @@ final class CompanionApprovalsMonitor: NSObject, WKNavigationDelegate, Observabl
         schedule(after: 60)
     }
 
-    func probePace() async -> (status: Int, paceState: CompanionPaceState, shops: [CompanionShopPace]) {
-        guard let reply = await fetch(path: CompanionPace.path) else {
-            return (0, paceState, [])
-        }
-        let state = CompanionPaceState.from(status: reply.status)
-        guard state == .available, let payload = CompanionPace.parse(reply.body) else {
-            pace = [:]
-            paceTotals = nil
-            paceState = state == .hidden ? .hidden : .failed
-            return (reply.status, paceState, [])
-        }
-        pace = payload.shops
-        paceTotals = payload.totals
-        paceState = .available
-        return (reply.status, .available, payload.shops.values.sorted { $0.name < $1.name })
-    }
-
-    func refreshPaceNow() async {
-        guard !paceRefreshing else { return }
+    @discardableResult
+    func refreshPaceNow() async -> (status: Int, paceState: CompanionPaceState, shops: [CompanionShopPace]) {
+        guard !paceRefreshing else { return (0, paceState, Array(pace.values)) }
         paceRefreshing = true
         defer { paceRefreshing = false }
         guard let reply = await fetch(path: CompanionPace.path) else {
             if pace.isEmpty { paceState = .failed }
-            return
+            return (0, paceState, Array(pace.values))
         }
-        switch CompanionPaceState.from(status: reply.status) {
-        case .available:
-            guard let payload = CompanionPace.parse(reply.body) else {
-                if pace.isEmpty { paceState = .failed }
-                return
-            }
+        let state = CompanionPaceState.from(status: reply.status)
+        if state == .available, let payload = CompanionPace.parse(reply.body) {
             pace = payload.shops
             paceTotals = payload.totals
             paceState = .available
-        case .hidden:
+        } else if state == .hidden {
             pace = [:]
             paceTotals = nil
             paceState = .hidden
-        case .failed, .unknown:
-            if pace.isEmpty { paceState = .failed }
-        }
+        } else if pace.isEmpty { paceState = .failed }
+        return (reply.status, paceState, pace.values.sorted { $0.name < $1.name })
     }
 
     private func notify(_ approval: CompanionApproval) async {

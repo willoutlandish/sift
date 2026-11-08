@@ -240,7 +240,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         CompanionApprovalsMonitor.shared.start(baseURL: requested)
         Task { @MainActor in
             try? await Task.sleep(nanoseconds: 500_000_000)
-            let probe = await CompanionApprovalsMonitor.shared.probePace()
+            let probe = await CompanionApprovalsMonitor.shared.refreshPaceNow()
             let payload: [String: Any] = [
                 "status": probe.status,
                 "pace_state": probe.paceState.label,
