@@ -158,6 +158,9 @@ struct SettingsView: View {
     private var locationSection: some View {
         VStack(alignment: .leading, spacing: 8) {
             sectionTitle("Show Ollie in")
+            Toggle("Show in Dock", isOn: Binding(get: { store.settings.showInDock },
+                set: { value in store.updateSettings { $0.showInDock = value } }))
+                .toggleStyle(.switch).controlSize(.small)
             ForEach(ShowIn.allCases) { option in
                 locationRow(option)
             }

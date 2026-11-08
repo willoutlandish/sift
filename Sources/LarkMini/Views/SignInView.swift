@@ -16,6 +16,9 @@ struct SignInView: View {
                 .font(.system(size: 11))
                 .foregroundStyle(.secondary)
 
+            Button("Sign in to Companion") { store.openCompanionSignIn() }
+                .buttonStyle(.borderedProminent)
+
             if let code = store.deviceCode {
                 VStack(spacing: 6) {
                     Text("Enter this code in Lark")

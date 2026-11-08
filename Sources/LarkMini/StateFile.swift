@@ -7,7 +7,7 @@ struct AppState: Codable, Equatable {
     var settings = Settings()
     var control: ControlSeat?
     var muted: [String: Date] = [:]
-    var companionURL: String?
+    var companionURL: String? = CompanionConfig.defaultURL
 
     init() {}
 
@@ -25,7 +25,7 @@ struct AppState: Codable, Equatable {
         settings = try container.decodeIfPresent(Settings.self, forKey: .settings) ?? Settings()
         control = try container.decodeIfPresent(ControlSeat.self, forKey: .control)
         muted = try container.decodeIfPresent([String: Date].self, forKey: .muted) ?? [:]
-        companionURL = try container.decodeIfPresent(String.self, forKey: .companionURL)
+        companionURL = try container.decodeIfPresent(String.self, forKey: .companionURL) ?? CompanionConfig.defaultURL
     }
 }
 

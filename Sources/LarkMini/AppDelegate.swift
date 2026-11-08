@@ -154,6 +154,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        switch DockRouting.destination(panelOpen: store.isExpanded && panelController.panel.isVisible) {
+        case .panel: panelController.expand(fromMenuBar: store.settings.showIn == .menubar)
+        case .companion: store.openCompanion()
+        }
+        return false
+    }
+
     func applicationWillTerminate(_ notification: Notification) {
         if let outsideMonitor { NSEvent.removeMonitor(outsideMonitor) }
         if let queryActivity { ProcessInfo.processInfo.endActivity(queryActivity) }
@@ -422,6 +430,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func applyShowInMode() {
+        NSApp.setActivationPolicy(store.settings.showInDock ? .regular : .accessory)
         if store.settings.showIn.showsMenuBar {
             setUpStatusItem()
         } else if let item = statusItem {
@@ -467,8 +476,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func refreshStatusBadge() {
-        guard let button = statusItem?.button else { return }
         let badge = OllieBadge.current
+        NSApp.dockTile.badgeLabel = badge.approvals > 0 ? String(badge.approvals) : nil
+        guard let button = statusItem?.button else { return }
         button.image = BrandIcon.statusBar(unread: badge.unread > 0)
         button.imagePosition = .imageLeft
         button.title = badge.approvals > 0 ? " \(badge.approvals)" : ""
@@ -535,4 +545,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
         }
     }
+}
+
+enum DockRouting {
+    enum Destination { case panel, companion }
+    static func destination(panelOpen: Bool) -> Destination { panelOpen ? .companion : .panel }
 }

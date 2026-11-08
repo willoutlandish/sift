@@ -21,6 +21,14 @@ enum CompanionPath {
 }
 
 enum CompanionConfig {
+    static var defaultURL: String {
+        defaultURL(development: AppIdentity.isDevelopment,
+                   devURL: Bundle.main.object(forInfoDictionaryKey: "OllieDevelopmentURL") as? String)
+    }
+    static func defaultURL(development: Bool, devURL: String?) -> String {
+        development ? (devURL ?? "http://localhost:8090") : "https://outlandishdigital.us"
+    }
+
     static func validatedURL(_ raw: String) -> URL? {
         let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty,

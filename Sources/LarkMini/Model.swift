@@ -194,7 +194,7 @@ struct Settings: Codable, Equatable {
     init() {}
 
     private enum CodingKeys: String, CodingKey {
-        case pollSeconds, panelWidth, accent, collapseOnOutsideClick, showPreviewText, launchAtLogin, showLarkPopups, showIn
+        case pollSeconds, panelWidth, accent, collapseOnOutsideClick, showPreviewText, launchAtLogin, showLarkPopups, showIn, showInDock
     }
 
     init(from decoder: Decoder) throws {
@@ -206,7 +206,8 @@ struct Settings: Codable, Equatable {
         showPreviewText = try container.decodeIfPresent(Bool.self, forKey: .showPreviewText) ?? true
         launchAtLogin = try container.decodeIfPresent(Bool.self, forKey: .launchAtLogin) ?? false
         showLarkPopups = try container.decodeIfPresent(Bool.self, forKey: .showLarkPopups) ?? false
-        showIn = try container.decodeIfPresent(ShowIn.self, forKey: .showIn) ?? .menubar
+        showIn = try container.decodeIfPresent(ShowIn.self, forKey: .showIn) ?? .edge
+        showInDock = try container.decodeIfPresent(Bool.self, forKey: .showInDock) ?? true
     }
 
     static func validWidth(_ value: Double) -> Double {
@@ -220,7 +221,8 @@ struct Settings: Codable, Equatable {
     var showPreviewText: Bool = true
     var launchAtLogin: Bool = false
     var showLarkPopups: Bool = false
-    var showIn: ShowIn = .menubar
+    var showIn: ShowIn = .edge
+    var showInDock: Bool = true
 }
 
 struct ChatToast: Identifiable, Equatable {

@@ -29,7 +29,9 @@ struct ShellView: View {
                 ChatListView()
             }
         case .lark:
-            if store.auth != .signedIn {
+            if LarkSource.select(hasCredentials: store.currentCredentials() != nil) == .companionReadOnly {
+                CompanionLarkView()
+            } else if store.auth != .signedIn {
                 SignInView()
             } else {
                 ChatListView()
