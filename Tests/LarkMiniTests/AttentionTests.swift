@@ -68,8 +68,8 @@ final class PanelPositionTests: XCTestCase {
         XCTAssertFalse(PanelGeometry.docks(NSRect(x: 342, y: 117, width: 400, height: 560), in: screen, margin: 12))
     }
 
-    func testShowInControlsHeadAndMenuBarAndDefaultsToMenuBar() throws {
-        XCTAssertEqual(Settings().showIn, .menubar)
+    func testShowInControlsHeadAndMenuBarAndDefaultsToEdge() throws {
+        XCTAssertEqual(Settings().showIn, .edge)
         XCTAssertFalse(ShowIn.menubar.showsEdgeHead)
         XCTAssertTrue(ShowIn.menubar.showsMenuBar)
         XCTAssertTrue(ShowIn.edge.showsEdgeHead)
@@ -77,7 +77,7 @@ final class PanelPositionTests: XCTestCase {
         XCTAssertTrue(ShowIn.both.showsEdgeHead)
         XCTAssertTrue(ShowIn.both.showsMenuBar)
         let legacy = try JSONDecoder().decode(Settings.self, from: Data("{}".utf8))
-        XCTAssertEqual(legacy.showIn, .menubar)
+        XCTAssertEqual(legacy.showIn, .edge)
     }
 
     func testMenuBarPanelAnchorsUnderTheStatusItemAndClampsOnSmallScreens() {

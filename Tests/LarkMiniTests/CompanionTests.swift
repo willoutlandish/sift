@@ -246,27 +246,6 @@ final class CompanionTests: XCTestCase {
         XCTAssertEqual(behind.actualFraction, 0.5, accuracy: 0.0001)
         XCTAssertEqual(behind.expectedFraction ?? -1, 0.75, accuracy: 0.0001)
 
-        var onTrack = base
-        onTrack = CompanionShopPace(resource: "north", name: "North Studio", currency: "USD",
-                                    mtd: 800, goal: 1000, expectedByToday: 750, gap: 50,
-                                    progressPct: 80, paceStatus: "on_track", basis: "total")
-
-        let ahead = CompanionShopPace(resource: "north", name: "North Studio", currency: "USD",
-                                      mtd: 900, goal: 1000, expectedByToday: 700, gap: 200,
-                                      progressPct: 90, paceStatus: "ahead", basis: "total")
-
-        let tooEarly = CompanionShopPace(resource: "north", name: "North Studio", currency: "USD",
-                                         mtd: nil, goal: 1000, expectedByToday: nil, gap: nil,
-                                         progressPct: nil, paceStatus: "too_early", basis: "total")
-
-        let noTarget = CompanionShopPace(resource: "north", name: "North Studio", currency: "USD",
-                                         mtd: 300, goal: nil, expectedByToday: nil, gap: nil,
-                                         progressPct: nil, paceStatus: "no_target", basis: "total")
-
-        let noData = CompanionShopPace(resource: "north", name: "North Studio", currency: nil,
-                                       mtd: nil, goal: 1000, expectedByToday: 600, gap: nil,
-                                       progressPct: nil, paceStatus: "no_data", basis: "total")
-
         XCTAssertEqual(CompanionPaceState.from(status: 403), .hidden)
         XCTAssertEqual(CompanionPaceState.from(status: 404), .hidden)
         XCTAssertEqual(CompanionPaceState.from(status: 200), .available)
@@ -277,7 +256,7 @@ final class CompanionTests: XCTestCase {
         let json = #"""
         {"as_of":"2026-11-06","month":{"start":"2026-11-01","day":6,"days_in_month":30,"elapsed_pct":20},
          "shops":[
-          {"resource":"north","name":"North Studio","metrics_through":"2026-11-06",
+          {"resource":"north","name":"North Studio","metrics_through":"2026-11-07","day":{"date":"2026-11-06"},
            "needs_you":{"total":3},
            "agents":[{"role":"creator manager","on":true},{"role":"ads manager","on":false}],
            "gmv":{"mtd":5000,"currency":"GBP","goal":10000,
@@ -377,10 +356,6 @@ final class CompanionTests: XCTestCase {
         XCTAssertEqual(snapshot.shops[0].allItems.first?.clickPath, "/companion/app/north/approvals")
         XCTAssertEqual(snapshot.shops[1].allItems.map(\.id), ["g"])
         XCTAssertEqual(snapshot.shops[1].allItems.first?.clickPath, "/companion/app/harbor/approvals")
-    }
-
-    func testApprovalsTodoStates() {
-        let empty = CompanionTodoSnapshot(total: 0, shops: [], orderedItems: [])
     }
 
 

@@ -147,20 +147,20 @@ struct OllieTodayModel: Equatable {
         }
 
         var parts: [String] = []
-        let unavailable = totals?.unavailableShops
+        let unavailable = paceAvailable ? paceShops.filter { $0.mtd == nil }.count : nil
         if paceAvailable, !paceShops.isEmpty,
            (unavailable.map { $0 >= paceShops.count } ?? !paceShops.contains(where: { $0.mtd != nil })) {
             let noun = paceShops.count == 1 ? "shop" : "shops"
             parts.append("\(paceShops.count) \(noun) not selling yet")
         } else if let onPace, let totalPace, let behind {
             parts.append("\(onPace) of \(totalPace) shops on pace")
-            parts.append("\(totals?.behind ?? behind) behind")
+            parts.append("\(behind) behind")
             if let unavailable, unavailable > 0 {
                 parts.append("\(unavailable) without sales data")
             }
         }
         if let working { parts.append("\(working) agents working") }
-        else if !paceShops.isEmpty { parts.append("\(paceShops.flatMap(\.agents).filter(\.on).count) agents on") }
+        else if !paceShops.flatMap(\.agents).isEmpty { parts.append("\(paceShops.flatMap(\.agents).filter(\.on).count) agents on") }
         if let needYou { parts.append("\(needYou) waiting for you") }
 
         self.shops = shops
