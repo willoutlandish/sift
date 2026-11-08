@@ -184,10 +184,10 @@ final class OllieModelsTests: XCTestCase {
         XCTAssertEqual(model.doThisFirst?.id, "a")
         XCTAssertEqual(model.batches.count, 1)
         XCTAssertEqual(model.batches[0].items.map(\.id), ["b", "c"])
-        XCTAssertEqual(model.batches[0].label, "2 creator samples")
+        XCTAssertEqual(model.batches[0].label, "2 · Promotions")
         XCTAssertEqual(model.older.map(\.id), ["d"])
         XCTAssertEqual(model.newer.map(\.id), [])
-        XCTAssertEqual(model.categories.map(\.label), ["Creator Sample", "Money"])
+        XCTAssertEqual(model.categories.map(\.label), ["Promotions"])
         let old = try XCTUnwrap(model.older.first)
         XCTAssertTrue(OllieApprovalsModel.removedWithinDay(old))
 

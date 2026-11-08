@@ -15,6 +15,8 @@ final class PaceCardTests: XCTestCase {
         XCTAssertEqual(OlliePacePill.make(pace)?.text, "$15.5k behind")
         XCTAssertEqual(OlliePacePill.ahead("$4.1k").text, "$4.1k ahead")
         XCTAssertEqual(OlliePacePill.noData.text, "No sales data yet")
+        let noDate = try XCTUnwrap(CompanionPace.parse(body.replacingOccurrences(of: "\"date\":\"2026-11-07\"", with: "\"date\":null"))?.shops["shop"])
+        XCTAssertEqual(CompanionPaceLabels(pace: noDate).footer, "Day 9 of 30")
         let leap = try XCTUnwrap(CompanionPace.parse(body.replacingOccurrences(of: "2026-11-01", with: "2028-02-01").replacingOccurrences(of: "\"days_in_month\":30", with: "\"days_in_month\":29"))?.shops["shop"])
         XCTAssertEqual(CompanionPaceLabels(pace: leap).scale?.end, "29 Feb")
     }

@@ -263,6 +263,10 @@ struct OllieActivityNode: Equatable {
 }
 
 enum OllieActivityModel {
+    static func waitingLabel(_ text: String) -> String {
+        text.trimmingCharacters(in: .whitespacesAndNewlines).lowercased().hasPrefix("waiting") ? text : "Waiting on: " + text
+    }
+
     static func summary(agents: [CompanionActivityAgent], lastRead: Date?, now: Date = Date()) -> String {
         let working = agents.filter { $0.state == "working" }.count
         var parts = ["\(agents.count) \(agents.count == 1 ? "agent" : "agents")", "\(working) working"]
@@ -356,16 +360,7 @@ struct OllieApprovalsModel: Equatable {
     }
 
     static func batchLabel(_ label: String, count: Int) -> String {
-        let lower = label.lowercased()
-        guard count != 1 else { return "\(count) \(lower)" }
-        if lower.hasSuffix("s") { return "\(count) \(lower)" }
-        if lower.hasSuffix("ch") || lower.hasSuffix("sh") || lower.hasSuffix("x") {
-            return "\(count) \(lower)es"
-        }
-        if lower.hasSuffix("y") {
-            return "\(count) \(lower.dropLast())ies"
-        }
-        return "\(count) \(lower)s"
+        "\(count) · \(label)"
     }
 
     static func removedWithinDay(_ item: CompanionTodoItem, now: Date = Date()) -> Bool {

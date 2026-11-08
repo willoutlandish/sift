@@ -178,6 +178,7 @@ struct CompanionTodoItem: Identifiable, Equatable {
     let itemLink: String?
     let shopName: String
     let resource: String
+    var categoryName: String? = nil
 
     var confirmationTarget: CompanionConfirmationTarget {
         .init(id: id, version: decision?.version, sendVersion: decision?.sendVersion,
@@ -185,18 +186,12 @@ struct CompanionTodoItem: Identifiable, Equatable {
     }
 
     var categoryKey: String {
-        let raw = kind.isEmpty ? source : kind
+        let raw = categoryName ?? (kind.isEmpty ? source : kind)
         return raw.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     var categoryLabel: String {
-        let raw = categoryKey
-        guard !raw.isEmpty else { return "Other" }
-        return raw.replacingOccurrences(of: "_", with: " ")
-            .replacingOccurrences(of: "-", with: " ")
-            .split(separator: " ")
-            .map { $0.prefix(1).uppercased() + $0.dropFirst() }
-            .joined(separator: " ")
+        categoryName ?? label
     }
 
     var reason: String? {
@@ -345,7 +340,7 @@ enum CompanionTodos {
                         decidedReason: item.decided_by?.reason,
                         itemLink: CompanionApprovalEligibility.safeHref(item.link),
                         shopName: shopName ?? shop.name,
-                        resource: resource ?? shop.resource)
+                        resource: resource ?? shop.resource, categoryName: nonEmpty(service.label))
                     items.append((items.count, todo))
                 }
             }

@@ -122,7 +122,7 @@ struct OllieActivityView: View {
                             .overlay(Capsule().strokeBorder(node.tone.color, lineWidth: 1))
                     }
                     Text(node.title).font(.system(size: 12.5, weight: .semibold))
-                        .foregroundStyle(OllieStyle.text).lineLimit(1)
+                        .foregroundStyle(OllieStyle.text).lineLimit(2)
                     Spacer(minLength: 0)
                 }
                 if agent.state == "working" {
@@ -136,7 +136,7 @@ struct OllieActivityView: View {
                         }
                     }
                 } else if let waiting = agent.waiting {
-                    Text("waiting on: \(waiting)" +
+                    Text(OllieActivityModel.waitingLabel(waiting) +
                          (agent.since.flatMap { CompanionActivityFormat.ago($0).isEmpty ? nil : " · " + CompanionActivityFormat.ago($0) } ?? ""))
                         .font(.system(size: 11)).foregroundStyle(OllieStyle.amber).lineLimit(2)
                 } else {
@@ -144,7 +144,7 @@ struct OllieActivityView: View {
                 }
                 if let last = agent.lastRunSummary {
                     HStack(spacing: 4) {
-                        Text(last).lineLimit(1)
+                        Text(last).lineLimit(2)
                         if let outcome = agent.lastRunOutcome { Text("· " + CompanionActivityFormat.outcome(outcome)) }
                         if let at = agent.lastRunAt, !CompanionActivityFormat.ago(at).isEmpty {
                             Text("· " + CompanionActivityFormat.ago(at))
