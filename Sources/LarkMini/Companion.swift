@@ -221,6 +221,21 @@ enum CompanionBridge {
 }
 
 struct CompanionNavigationPolicy: Equatable {
+    /// Action policy owns navigation origins. Response restrictions apply only
+    /// to downloads, not displayable auth pages or iframe documents.
+    static func responseDecision(response: URLResponse, canShowMIMEType: Bool,
+                                 isMainFrame: Bool, baseURL: URL?) -> WKNavigationResponsePolicy {
+        let disposition = (response as? HTTPURLResponse)?
+            .value(forHTTPHeaderField: "Content-Disposition")?
+            .split(separator: ";", maxSplits: 1).first?
+            .trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        if canShowMIMEType && disposition != "attachment" { return .allow }
+        guard isMainFrame, let baseURL, let url = response.url,
+              CompanionConfig.originMatches(scheme: url.scheme ?? "", host: url.host ?? "",
+                                            port: url.port ?? 0, base: baseURL) else { return .cancel }
+        return .download
+    }
+
     enum Decision: Equatable {
         case allow
         case external

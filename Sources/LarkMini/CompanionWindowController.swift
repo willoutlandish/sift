@@ -514,15 +514,9 @@ final class CompanionWindowController: NSWindowController, WKNavigationDelegate,
     func webView(_ webView: WKWebView,
                  decidePolicyFor navigationResponse: WKNavigationResponse,
                  decisionHandler: @escaping (WKNavigationResponsePolicy) -> Void) {
-        guard navigationResponse.isForMainFrame,
-              let baseURL,
-              let url = navigationResponse.response.url,
-              CompanionConfig.originMatches(scheme: url.scheme ?? "", host: url.host ?? "",
-                                            port: url.port ?? 0, base: baseURL) else {
-            decisionHandler(.cancel)
-            return
-        }
-        decisionHandler(navigationResponse.canShowMIMEType ? .allow : .download)
+        decisionHandler(CompanionNavigationPolicy.responseDecision(
+            response: navigationResponse.response, canShowMIMEType: navigationResponse.canShowMIMEType,
+            isMainFrame: navigationResponse.isForMainFrame, baseURL: baseURL))
     }
 
     func webView(_ webView: WKWebView,
