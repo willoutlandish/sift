@@ -514,9 +514,6 @@ enum CLI {
     }
 
     private static func companionDragMap(_ state: StateFile) -> Int32 {
-        guard AppIdentity.isDevelopment else {
-            return fail("companion drag-map is only available in Ollie Dev")
-        }
         guard let base = CompanionConfig.validatedURL(state.current.effectiveCompanionURL) else {
             return fail("No Companion URL configured. Run ollie companion set --url http://host:port")
         }
@@ -713,7 +710,7 @@ enum CLI {
       companion Open the real Companion web app in its own Ollie window
                   set --url http://host:port
                   status | pace | open [--path /same-origin/path]
-                  drag-map                         dev-only titlebar hit map
+                  drag-map                         titlebar geometry and hit map
       settings  set --show-in menubar|edge|both
       doctor    Check credentials, token and chat access
       open      Open the Ollie app

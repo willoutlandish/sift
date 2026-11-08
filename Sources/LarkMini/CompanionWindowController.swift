@@ -1,21 +1,45 @@
 import AppKit
 import WebKit
+import os.log
 
 final class CompanionWebView: WKWebView {
+    private static let dragLog = OSLog(subsystem: "com.outlandish.ollie", category: "drag")
     var isCompanionPage: () -> Bool = { false }
-    var interactiveRows: () -> [CompanionDragRow] = { [] }
+    var dragMap: () -> CompanionDragMap = { CompanionDragMap() }
+    var refreshDragMap: () -> Void = {}
     var onDoubleClick: () -> Void = {}
 
+    func dragDecision(at point: CGPoint, now: Date = Date()) ->
+        (drag: Bool, top: CGFloat, strip: CGFloat, companion: Bool, rows: Int, interactive: Bool) {
+        let map = dragMap()
+        // The asynchronous refresh must not delay this press or replace its snapshot.
+        if map.needsRefresh(now: now) { refreshDragMap() }
+        let companion = isCompanionPage()
+        let scale = map.scale(for: bounds)
+        let interactive = CompanionDragHitTest.isInteractive(point: point, in: bounds, rows: map.rows,
+                                                              isFlipped: isFlipped, scale: scale)
+        let drag = CompanionDragHitTest.shouldDrag(point: point, in: bounds, strip: map.stripHeight,
+            rows: map.rows, isCompanionPage: companion, isFlipped: isFlipped, scale: scale)
+        return (drag, CompanionDragHitTest.yFromTop(point, in: bounds, isFlipped: isFlipped),
+                map.stripHeight * scale, companion, map.rows.count, interactive)
+    }
+
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool {
+        guard let event, event.buttonNumber == 0 else { return false }
+        return dragDecision(at: convert(event.locationInWindow, from: nil)).drag
+    }
+
     override func mouseDown(with event: NSEvent) {
-        guard event.buttonNumber == 0 else {
-            super.mouseDown(with: event)
-            return
+        let decision = dragDecision(at: convert(event.locationInWindow, from: nil))
+        let drag = event.buttonNumber == 0 && decision.drag
+        if decision.top >= 0 && decision.top <= 160 {
+            // Geometry and booleans only; drag=1, pass=0. No page URLs or content.
+            os_log("y=%{public}.2f strip=%{public}.2f companion=%{public}d key=%{public}d rows=%{public}d interactive=%{public}d drag=%{public}d flipped=%{public}d",
+                   log: Self.dragLog, type: .default, Double(decision.top), Double(decision.strip),
+                   decision.companion ? 1 : 0, window?.isKeyWindow == true ? 1 : 0, decision.rows,
+                   decision.interactive ? 1 : 0, drag ? 1 : 0, isFlipped ? 1 : 0)
         }
-        let point = convert(event.locationInWindow, from: nil)
-        let strip = isCompanionPage() ? CompanionDragHitTest.titleBarHeight
-                                      : CompanionDragHitTest.insetTitleBarHeight
-        guard CompanionDragHitTest.shouldDrag(point: point, in: bounds, strip: strip,
-                                               rows: interactiveRows(), isCompanionPage: isCompanionPage()) else {
+        guard drag else {
             super.mouseDown(with: event)
             return
         }
@@ -38,7 +62,7 @@ final class CompanionWindowController: NSWindowController, WKNavigationDelegate,
     private var windowObservers: [NSObjectProtocol] = []
     private var lastTitlebarDoubleClick = Date.distantPast
     private var passkeyHintShown = false
-    private var titlebarRows: [CompanionDragRow] = []
+    private var titlebarMap = CompanionDragMap()
     private var externalOpenTimes: [Date] = []
 
     private init() {
@@ -78,10 +102,15 @@ final class CompanionWindowController: NSWindowController, WKNavigationDelegate,
         contentController.add(self, contentWorld: .page, name: "ollieUpdateGuard")
         contentController.add(self, contentWorld: .page, name: "ollieTitlebar")
         webView.isCompanionPage = { [weak self] in self?.companionPageActive ?? false }
-        webView.interactiveRows = { [weak self] in self?.titlebarRows ?? [] }
+        webView.dragMap = { [weak self] in self?.titlebarMap ?? CompanionDragMap() }
+        webView.refreshDragMap = { [weak self] in self?.requestTitlebarMap() }
         webView.onDoubleClick = { [weak self] in self?.performTitlebarDoubleClick() }
         positionTrafficLights()
         windowObservers = [
+            NotificationCenter.default.addObserver(forName: NSWindow.didBecomeKeyNotification,
+                                                   object: window, queue: .main) { [weak self] _ in
+                MainActor.assumeIsolated { self?.requestTitlebarMap() }
+            },
             NotificationCenter.default.addObserver(forName: NSWindow.didResizeNotification,
                                                    object: window, queue: .main) { [weak self] _ in
                 MainActor.assumeIsolated { self?.positionTrafficLights() }
@@ -183,12 +212,24 @@ final class CompanionWindowController: NSWindowController, WKNavigationDelegate,
         }
     }
 
+    private func requestTitlebarMap() {
+        webView.evaluateJavaScript("window.__ollieTitlebarRefresh?.()", completionHandler: nil)
+    }
+
     func dragMapPayload() async -> [String: Any] {
-        let rows = titlebarRows.map { row in
+        if let payload = try? await webView.evaluateJavaScript("window.__ollieTitlebarMap?.()") as? [String: Any] {
+            titlebarMap.update(payload, now: Date())
+        }
+        let rows = titlebarMap.rows.map { row in
             ["start": Double(row.start), "end": Double(row.end),
              "intervals": row.intervals.map { [Double($0.lowerBound), Double($0.upperBound)] }]
         }
-        return ["ok": true, "url": webView.url?.absoluteString ?? "", "rows": rows]
+        return ["ok": true, "rows": rows, "strip_height": Double(titlebarMap.stripHeight),
+                "header_bottom": Double(titlebarMap.headerBottom), "rail_inset_bottom": Double(titlebarMap.railInsetBottom),
+                "viewport_width": Double(titlebarMap.viewportWidth), "view_width": Double(webView.bounds.width),
+                "view_height": Double(webView.bounds.height), "is_flipped": webView.isFlipped,
+                "is_companion_page": companionPageActive, "window_is_key": window?.isKeyWindow == true,
+                "map_age_seconds": titlebarMap.updatedAt.map { max(0, Date().timeIntervalSince($0)) } ?? -1]
     }
 
     required init?(coder: NSCoder) {
@@ -288,84 +329,7 @@ final class CompanionWindowController: NSWindowController, WKNavigationDelegate,
             { childList: true, subtree: true });
         })();
         """
-        let titlebarSource = """
-        (function () {
-          const appOrigin = "\(escaped)";
-          if (window.top !== window) return;
-          const isCompanion = location.origin === appOrigin &&
-            (location.pathname === '/companion/app' || location.pathname.startsWith('/companion/app/'));
-          const strip = isCompanion ? 52 : 28;
-          const handler = window.webkit && window.webkit.messageHandlers &&
-            window.webkit.messageHandlers.ollieTitlebar;
-          const controlTags = new Set(['button', 'input', 'select', 'textarea', 'summary']);
-          const controlRoles = new Set([
-            'button', 'link', 'menuitem', 'tab', 'switch', 'checkbox', 'combobox', 'option'
-          ]);
-          const isControl = function (element) {
-            let node = element;
-            while (node && node !== document.body && node !== document.documentElement) {
-              const tag = (node.tagName || '').toLowerCase();
-              const role = ((node.getAttribute && node.getAttribute('role')) || '').toLowerCase();
-              if (controlTags.has(tag)) return true;
-              if (tag === 'a' && node.hasAttribute('href')) return true;
-              if (tag === 'label' && node.hasAttribute('for')) return true;
-              if (controlRoles.has(role)) return true;
-              if (node.getAttribute && node.getAttribute('contenteditable') === 'true') return true;
-              if (window.getComputedStyle(node).cursor === 'pointer') return true;
-              node = node.parentElement;
-            }
-            return false;
-          };
-          const build = function () {
-            const width = Math.max(1, window.innerWidth);
-            const count = strip >= 52 ? 3 : 2;
-            const band = strip / count;
-            const rows = [];
-            for (let index = 0; index < count; index++) {
-              const start = index * band;
-              const end = (index + 1) * band;
-              const y = (start + end) / 2;
-              const intervals = [];
-              let current = null;
-              for (let x = 0; x < width; x += 4) {
-                const element = document.elementFromPoint(x, y);
-                const hit = element ? isControl(element) : false;
-                if (hit) {
-                  if (!current) current = [x, Math.min(width, x + 4)];
-                  else current[1] = Math.min(width, x + 4);
-                } else if (current) {
-                  intervals.push(current);
-                  current = null;
-                }
-              }
-              if (current) intervals.push(current);
-              rows.push({ start: start, end: end, intervals: intervals });
-            }
-            return rows;
-          };
-          window.__ollieTitlebarMap = build;
-          const post = function () { if (handler) handler.postMessage(build()); };
-          let scheduled = false;
-          const schedule = function () {
-            if (scheduled) return;
-            scheduled = true;
-            requestAnimationFrame(function () { scheduled = false; post(); });
-          };
-          window.addEventListener('resize', schedule);
-          document.addEventListener('scroll', schedule, true);
-          new MutationObserver(schedule).observe(document,
-            { childList: true, subtree: true, attributes: true,
-              attributeFilter: ['style', 'class', 'hidden', 'aria-hidden', 'href', 'role'] });
-          if (window.ResizeObserver && document.documentElement) {
-            new ResizeObserver(schedule).observe(document.documentElement);
-          }
-          document.addEventListener('DOMContentLoaded', schedule);
-          if (!isCompanion) {
-            \(CompanionPageInset.source)
-          }
-          schedule();
-        })();
-        """
+        let titlebarSource = CompanionTitlebarScript.source(escapedOrigin: escaped)
         userContentController.removeAllUserScripts()
         userContentController.addUserScript(WKUserScript(source: CompanionUpdateGuard.source,
                                                          injectionTime: .atDocumentStart, forMainFrameOnly: true))
@@ -380,6 +344,7 @@ final class CompanionWindowController: NSWindowController, WKNavigationDelegate,
 
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
         updateLightsInset()
+        requestTitlebarMap()
     }
 
     func userContentController(_ userContentController: WKUserContentController,
@@ -404,8 +369,8 @@ final class CompanionWindowController: NSWindowController, WKNavigationDelegate,
                                             host: message.frameInfo.securityOrigin.host,
                                             port: message.frameInfo.securityOrigin.port,
                                             base: baseURL),
-              let rows = message.body as? [[String: Any]] else { return }
-        titlebarRows = CompanionDragHitTest.rows(from: rows)
+              let payload = message.body as? [String: Any] else { return }
+        titlebarMap.update(payload, now: Date())
     }
 
     private func showPasskeyHint() {
@@ -423,7 +388,7 @@ final class CompanionWindowController: NSWindowController, WKNavigationDelegate,
 
     func webView(_ webView: WKWebView, didCommit navigation: WKNavigation!) {
         passkeyHintShown = false
-        titlebarRows = []
+        titlebarMap = CompanionDragMap()
     }
 
     func userContentController(_ userContentController: WKUserContentController,

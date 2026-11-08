@@ -262,7 +262,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         Task { @MainActor in
             var payload = await CompanionWindowController.shared.dragMapPayload()
             payload["ok"] = true
-            payload["url"] = requested.absoluteString
             let file = AppPaths.supportDirectory
                 .appendingPathComponent("companion-drag-map-\(id)-\(instance).json")
             guard let data = try? JSONSerialization.data(withJSONObject: payload) else { return }

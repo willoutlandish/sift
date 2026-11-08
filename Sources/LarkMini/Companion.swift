@@ -112,6 +112,37 @@ struct CompanionDragRow: Equatable {
     let intervals: [ClosedRange<CGFloat>]
 }
 
+struct CompanionDragMap {
+    var stripHeight: CGFloat = 52
+    var viewportWidth: CGFloat = 0
+    var headerBottom: CGFloat = 0
+    var railInsetBottom: CGFloat = 0
+    var rows: [CompanionDragRow] = []
+    var updatedAt: Date?
+
+    func needsRefresh(now: Date) -> Bool {
+        guard let updatedAt else { return true }
+        return now.timeIntervalSince(updatedAt) > 2
+    }
+
+    func scale(for bounds: CGRect) -> CGFloat {
+        viewportWidth > 0 && bounds.width > 0 ? bounds.width / viewportWidth : 1
+    }
+
+    mutating func update(_ payload: [String: Any], now: Date) {
+        func finite(_ key: String, fallback: CGFloat = 0) -> CGFloat {
+            guard let value = payload[key] as? NSNumber, value.doubleValue.isFinite else { return fallback }
+            return CGFloat(value.doubleValue)
+        }
+        stripHeight = min(140, max(28, finite("stripHeight", fallback: 52)))
+        viewportWidth = max(0, finite("viewportWidth"))
+        headerBottom = finite("headerBottom")
+        railInsetBottom = finite("railInsetBottom")
+        rows = CompanionDragHitTest.rows(from: payload["rows"] as? [[String: Any]] ?? [])
+        updatedAt = now
+    }
+}
+
 enum CompanionDragHitTest {
     static let titleBarHeight: CGFloat = 52
     static let insetTitleBarHeight: CGFloat = 28
@@ -122,21 +153,32 @@ enum CompanionDragHitTest {
         case none
     }
 
-    static func shouldDrag(point: CGPoint, in bounds: CGRect, strip: CGFloat,
-                           rows: [CompanionDragRow], isCompanionPage: Bool = true) -> Bool {
-        // Auth and other non-bridge pages must receive every click, even before
-        // their DOM/control map is ready or when a control is fixed to the top.
-        guard isCompanionPage else { return false }
-        let top = bounds.maxY - point.y
-        guard top >= 0, top <= strip else { return false }
-        return !rows.contains { row in
-            row.start <= top && top <= row.end
-                && row.intervals.contains { $0.contains(point.x) }
+    static func yFromTop(_ point: CGPoint, in bounds: CGRect, isFlipped: Bool) -> CGFloat {
+        isFlipped ? point.y - bounds.minY : bounds.maxY - point.y
+    }
+
+    static func isInteractive(point: CGPoint, in bounds: CGRect, rows: [CompanionDragRow],
+                              isFlipped: Bool = false, scale: CGFloat = 1) -> Bool {
+        let top = yFromTop(point, in: bounds, isFlipped: isFlipped) / scale
+        let x = (point.x - bounds.minX) / scale
+        return rows.contains { row in
+            row.start <= top && top <= row.end && row.intervals.contains { $0.contains(x) }
         }
     }
 
+    static func shouldDrag(point: CGPoint, in bounds: CGRect, strip: CGFloat,
+                           rows: [CompanionDragRow], isCompanionPage: Bool = true,
+                           isFlipped: Bool = false, scale: CGFloat = 1) -> Bool {
+        // Auth and other non-bridge pages must receive every click, even before
+        // their DOM/control map is ready or when a control is fixed to the top.
+        guard isCompanionPage else { return false }
+        let top = yFromTop(point, in: bounds, isFlipped: isFlipped) / scale
+        guard top >= 0, top <= strip else { return false }
+        return !isInteractive(point: point, in: bounds, rows: rows, isFlipped: isFlipped, scale: scale)
+    }
+
     static func rows(from raw: [[String: Any]]) -> [CompanionDragRow] {
-        raw.prefix(8).compactMap { row in
+        raw.prefix(40).compactMap { row in
             guard let start = number(row["start"]), let end = number(row["end"]),
                   start.isFinite, end.isFinite, start <= end,
                   let pairs = row["intervals"] as? [[Any]] else { return nil }
