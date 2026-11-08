@@ -6,6 +6,7 @@ struct SettingsView: View {
     @Environment(\.larkAccent) private var accent
     @EnvironmentObject var store: Store
     @ObservedObject private var notifications = Notifications.shared
+    @ObservedObject private var approvalMonitor = CompanionApprovalsMonitor.shared
     @State private var companionAddress = ""
     @State private var appId = ""
     @State private var appSecret = ""
@@ -259,6 +260,12 @@ struct SettingsView: View {
                 .font(.system(size: 12)).foregroundStyle(SiftStyle.secondary)
             Toggle("macOS notifications", isOn: $notifications.enabled)
                 .font(.system(size: 12)).toggleStyle(.switch).controlSize(.small)
+            Picker("Notify me about", selection: $notifications.approvalMode) {
+                ForEach(ApprovalNotificationMode.options(canSeeAll: approvalMonitor.canSeeAllShops)) { option in
+                    Text(option.label).tag(option)
+                }
+            }
+            .font(.system(size: 12))
             Toggle("Notification sound", isOn: $notifications.sound)
                 .font(.system(size: 12)).toggleStyle(.switch).controlSize(.small)
                 .disabled(!notifications.enabled)

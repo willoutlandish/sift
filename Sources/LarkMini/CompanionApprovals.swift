@@ -256,6 +256,9 @@ struct CompanionApproval: Equatable {
     let question: String
     let resource: String?
     let shopName: String?
+    var mine = false
+    var band: String? = nil
+    var riskReason: String? = nil
 
     var clickPath: String {
         CompanionApprovals.clickPath(resource: resource)
@@ -273,7 +276,8 @@ enum CompanionApprovals {
                     let label = nonEmpty(item.agent?.label) ?? nonEmpty(service.label) ?? "An agent"
                     let question = nonEmpty(item.question) ?? nonEmpty(item.kind) ?? nonEmpty(item.source) ?? "Approval"
                     return CompanionApproval(id: item.id, label: label, question: question,
-                                             resource: resource, shopName: shopName)
+                                             resource: resource, shopName: shopName, mine: item.mine == true,
+                                             band: item.priority?.band, riskReason: item.priority?.risk_reason)
                 }
             }
         }
@@ -486,6 +490,9 @@ final class CompanionApprovalsMonitor: NSObject, WKNavigationDelegate, Observabl
 
     @Published private(set) var state: CompanionTodosState = .loading
     @Published private(set) var pace: [String: CompanionShopPace] = [:]
+    @Published private(set) var canSeeAllShops = false
+    private var latestApprovals: [CompanionApproval] = []
+    @Published private(set) var approvalBadge = 0
     @Published private(set) var shopNames: [String: String] = [:]
     @Published private(set) var paceTotals: CompanionPaceTotals?
     @Published private(set) var paceState: CompanionPaceState = .unknown
@@ -531,9 +538,11 @@ final class CompanionApprovalsMonitor: NSObject, WKNavigationDelegate, Observabl
         state = .loading
         pace = [:]
         shopNames = [:]
+        canSeeAllShops = false
         paceTotals = nil
         paceState = .unknown
-        OllieBadge.setApprovals(0)
+        latestApprovals = []
+        recomputeBadge()
     }
 
     func refresh() {
@@ -729,7 +738,8 @@ final class CompanionApprovalsMonitor: NSObject, WKNavigationDelegate, Observabl
         if reply.status == 401 || reply.status == 403 || reply.status == 419
             || (finalURL.map(CompanionSignInProbe.isSignIn) ?? false) {
             state = .signedOut
-            OllieBadge.setApprovals(0)
+            latestApprovals = []
+        recomputeBadge()
             failures += 1
             schedule(after: backoff)
             return
@@ -747,29 +757,26 @@ final class CompanionApprovalsMonitor: NSObject, WKNavigationDelegate, Observabl
         failures = 0
         let snapshot = CompanionTodos.make(from: list)
         state = .ready(snapshot)
-        OllieBadge.setApprovals(snapshot.total)
-        await refreshPaceNow()
+                await refreshPaceNow()
 
         let approvals = CompanionApprovals.flatten(list)
-        if let seen = seenStore.load() {
-            for approval in CompanionApprovals.diff(current: approvals, seen: seen) {
-                await notify(approval)
-            }
-            if Notifications.shared.enabled, Notifications.shared.access == .authorized {
-                seenStore.save(seen.union(approvals.map(\.id)))
-            }
-        } else {
-            if Notifications.shared.enabled, Notifications.shared.access == .authorized {
-                seenStore.save(Set(approvals.map(\.id)))
-            }
-            if snapshot.total > 0 {
-                await Notifications.shared.postApproval(
-                    title: "\(snapshot.total) things waiting for your approval",
-                    body: "Open Ollie to review them.",
-                    id: "summary-\(Int(Date().timeIntervalSince1970))",
-                    path: CompanionApprovals.clickPath(resource: nil))
-            }
+        latestApprovals = approvals
+        let preference = Notifications.shared
+        let key = "approvalNotificationTimes:" + (baseURL?.absoluteString ?? "")
+        let saved = UserDefaults.standard.dictionary(forKey: key) as? [String: Double] ?? [:]
+        var policy = ApprovalNotificationPolicy(lastSent: saved.mapValues { Date(timeIntervalSince1970: $0) })
+        let plan = policy.plan(items: approvals, seen: seenStore.load() ?? [], mode: preference.approvalMode,
+                               canSeeAll: canSeeAllShops,
+                               deliveryEnabled: preference.enabled && preference.access == .authorized, now: Date())
+        // Mark all observed items, including those outside the notification scope.
+        seenStore.save(plan.seen)
+        UserDefaults.standard.set(policy.lastSent.mapValues(\.timeIntervalSince1970), forKey: key)
+        recomputeBadge()
+        if plan.summaryCount > 0 {
+            await preference.postApproval(title: "\(plan.summaryCount) things need you", body: "Open Waiting on you to review them.",
+                id: "summary-\(Int(Date().timeIntervalSince1970))", path: CompanionApprovals.clickPath(resource: nil))
         }
+        for approval in plan.singles { await notify(approval) }
         schedule(after: 60)
     }
 
@@ -786,15 +793,24 @@ final class CompanionApprovalsMonitor: NSObject, WKNavigationDelegate, Observabl
         if state == .available, let payload = CompanionPace.parse(reply.body) {
             pace = payload.shops
             shopNames = payload.shopNames
+            canSeeAllShops = payload.canSeeAllShops
+            recomputeBadge()
             paceTotals = payload.totals
             paceState = .available
         } else if state == .hidden {
             pace = [:]
         shopNames = [:]
+        canSeeAllShops = false
             paceTotals = nil
             paceState = .hidden
         } else if pace.isEmpty { paceState = .failed }
         return (reply.status, paceState, pace.values.sorted { $0.name < $1.name })
+    }
+
+    func recomputeBadge() {
+        approvalBadge = ApprovalNotificationPolicy.badge(latestApprovals,
+            mode: Notifications.shared.approvalMode, canSeeAll: canSeeAllShops)
+        OllieBadge.setApprovals(approvalBadge)
     }
 
     private func notify(_ approval: CompanionApproval) async {

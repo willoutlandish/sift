@@ -70,6 +70,7 @@ struct CompanionPacePayload: Equatable {
     let totals: CompanionPaceTotals?
     let metricsThrough: String?
     var shopNames: [String: String] = [:]
+    var canSeeAllShops = false
 }
 
 enum CompanionPaceState: Equatable {
@@ -200,7 +201,7 @@ enum CompanionPace {
         for shop in list.shops {
             if let resource = shop.resource, let name = shop.name, !resource.isEmpty, !name.isEmpty { names[resource] = name }
         }
-        return CompanionPacePayload(shops: shops, totals: totals, metricsThrough: metricsThrough, shopNames: names)
+        return CompanionPacePayload(shops: shops, totals: totals, metricsThrough: metricsThrough, shopNames: names, canSeeAllShops: list.viewer?.kind == "staff" && list.viewer?.scopes?["all"] != nil)
     }
 
     private struct Portfolio: Decodable {
@@ -249,7 +250,7 @@ enum CompanionPace {
             let behind: Int?
             let gmv_unavailable_shops: Int?
         }
-        struct Viewer: Decodable { let kind: String?; let default_scope: String? }
+        struct Viewer: Decodable { let kind: String?; let default_scope: String?; let scopes: [String: Int]? }
         let viewer: Viewer?
         let shops: [Shop]
         let totals: Totals?

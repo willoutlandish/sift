@@ -14,6 +14,12 @@ final class Notifications: NSObject, ObservableObject, UNUserNotificationCenterD
     @Published var sound = UserDefaults.standard.bool(forKey: "notificationSound") {
         didSet { UserDefaults.standard.set(sound, forKey: "notificationSound") }
     }
+    @Published var approvalMode = ApprovalNotificationMode(rawValue: UserDefaults.standard.string(forKey: "approvalNotificationMode") ?? "") ?? .urgentMine {
+        didSet {
+            UserDefaults.standard.set(approvalMode.rawValue, forKey: "approvalNotificationMode")
+            CompanionApprovalsMonitor.shared.recomputeBadge()
+        }
+    }
     enum Access: Equatable {
         case unknown
         case notDetermined
@@ -134,6 +140,7 @@ final class Notifications: NSObject, ObservableObject, UNUserNotificationCenterD
     }
 
     func postApproval(title: String, body: String, id: String, path: String) async {
+        guard enabled, approvalMode != .off else { return }
         await postDirect(title: title, body: body, id: "approval-\(id)", destination: "companion:\(path)")
     }
 
