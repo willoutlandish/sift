@@ -20,13 +20,21 @@ enum CompanionPath {
     }
 }
 
+enum CompanionOpenSource {
+    case cli, urlScheme
+
+    /// CLI requests reveal the window and take focus; external scheme links stay passive.
+    var requestsForeground: Bool { self == .cli }
+}
+
 enum CompanionConfig {
+    static let productionURL = "https://outlandishdigital.us"
     static var defaultURL: String {
         defaultURL(development: AppIdentity.isDevelopment,
                    devURL: Bundle.main.object(forInfoDictionaryKey: "OllieDevelopmentURL") as? String)
     }
     static func defaultURL(development: Bool, devURL: String?) -> String {
-        development ? (devURL ?? "https://outlandishdigital.us") : "https://outlandishdigital.us"
+        development ? (devURL ?? productionURL) : productionURL
     }
 
     static func validatedURL(_ raw: String) -> URL? {

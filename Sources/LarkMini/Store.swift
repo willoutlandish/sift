@@ -193,7 +193,7 @@ final class Store: ObservableObject {
         lastSeen = state.lastSeen
         adoptSeat(state.control)
         muted = state.muted
-        companionURL = state.companionURL
+        companionURL = state.effectiveCompanionURL
         let saved = DraftFile.load()
         drafts = saved.chats
         controlDraft = saved.control
@@ -233,7 +233,7 @@ final class Store: ObservableObject {
         if state.control != controlSeat {
             adoptSeat(state.control)
             if state.control == nil { controlOpen = false } }
-        if state.companionURL != companionURL { companionURL = state.companionURL }
+        if state.effectiveCompanionURL != companionURL { companionURL = state.effectiveCompanionURL }
         if tokens.tokens != nil, auth == .signedOut { auth = .signedIn }
         if tokens.tokens == nil, auth == .signedIn { auth = .signedOut }
     }
@@ -1056,15 +1056,33 @@ final class Store: ObservableObject {
         controlOpen = false
     }
 
+    @discardableResult
+    func setCompanionURL(_ raw: String?) -> Bool {
+        let override: String?
+        if let raw {
+            guard let url = CompanionConfig.validatedURL(raw) else {
+                errorText = "Enter an absolute HTTPS URL (HTTP is allowed for local development)."
+                return false
+            }
+            override = url.absoluteString
+        } else {
+            override = nil
+        }
+        let state = stateFile.update { $0.companionURL = override }
+        companionURL = state.effectiveCompanionURL
+        errorText = nil
+        startCompanionMonitor()
+        return true
+    }
+
     var companionConfigured: Bool {
         companionURL.flatMap(CompanionConfig.validatedURL) != nil
     }
 
     func openCompanion(path: String? = nil, activate: Bool = true) {
         let state = stateFile.reload()
-        companionURL = state.companionURL
-        guard let raw = state.companionURL,
-              let base = CompanionConfig.validatedURL(raw) else {
+        companionURL = state.effectiveCompanionURL
+        guard let base = CompanionConfig.validatedURL(state.effectiveCompanionURL) else {
             errorText = "Set a Companion URL with: ollie companion set --url http://host:port"
             return
         }
@@ -1075,8 +1093,8 @@ final class Store: ObservableObject {
 
     func openApprovalItem(_ item: CompanionTodoItem) {
         guard let link = item.itemLink else { openCompanion(path: item.clickPath); return }
-        if link.hasPrefix("/"), let raw = stateFile.reload().companionURL,
-           let base = CompanionConfig.validatedURL(raw) {
+        if link.hasPrefix("/"),
+           let base = CompanionConfig.validatedURL(stateFile.reload().effectiveCompanionURL) {
             CompanionWindowController.shared.open(baseURL: base, path: link, allowAnyPath: true)
         } else if let url = URL(string: link) {
             NSWorkspace.shared.open(url)
@@ -1085,9 +1103,8 @@ final class Store: ObservableObject {
 
     func openCompanionSignIn() {
         let state = stateFile.reload()
-        companionURL = state.companionURL
-        guard let raw = state.companionURL,
-              let base = CompanionConfig.validatedURL(raw) else {
+        companionURL = state.effectiveCompanionURL
+        guard let base = CompanionConfig.validatedURL(state.effectiveCompanionURL) else {
             errorText = "Set a Companion URL with: ollie companion set --url http://host:port"
             return
         }
@@ -1098,7 +1115,7 @@ final class Store: ObservableObject {
 
     private func startCompanionMonitor() {
         let state = stateFile.reload()
-        if let raw = state.companionURL, let base = CompanionConfig.validatedURL(raw) {
+        if let base = CompanionConfig.validatedURL(state.effectiveCompanionURL) {
             CompanionApprovalsMonitor.shared.start(baseURL: base)
         }
     }

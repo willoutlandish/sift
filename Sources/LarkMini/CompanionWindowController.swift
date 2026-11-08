@@ -205,6 +205,11 @@ final class CompanionWindowController: NSWindowController, WKNavigationDelegate,
         policy = CompanionNavigationPolicy(baseURL: baseURL)
         installCompanionBridge(appOrigin: baseURL)
         if activate {
+            if window?.isMiniaturized == true { window?.deminiaturize(nil) }
+            // Recover saved frames from disconnected displays before showing the window.
+            if let window, !NSScreen.screens.contains(where: { $0.visibleFrame.intersects(window.frame) }) {
+                window.center()
+            }
             showWindow(nil)
             window?.makeKeyAndOrderFront(nil)
             NSApp.activate(ignoringOtherApps: true)

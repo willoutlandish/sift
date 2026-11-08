@@ -178,7 +178,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 guard normalized.hasPrefix("/companion/app") else { return }
                 let accepted = CompanionPath.accepted(normalized)
                 guard CompanionConfig.isCompanionAppPath(accepted) else { return }
-                store.openCompanion(path: accepted, activate: false)
+                store.openCompanion(path: accepted, activate: CompanionOpenSource.urlScheme.requestsForeground)
             } else if let id = ChatLinks.chatId(from: url) {
                 panelController.expand(fromMenuBar: store.settings.showIn == .menubar)
                 store.openLinkedChat(id)
@@ -240,7 +240,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         guard AppQueryFreshness.isFresh(note, maxAge: 20), let id = note.userInfo?["id"] as? String, UUID(uuidString: id) != nil,
               note.userInfo?["home"] as? String == AppPaths.supportDirectory.path,
               let requested = (note.userInfo?["url"] as? String).flatMap(CompanionConfig.validatedURL),
-              let configured = StateFile.shared.reload().companionURL.flatMap(CompanionConfig.validatedURL),
+              let configured = CompanionConfig.validatedURL(StateFile.shared.reload().effectiveCompanionURL),
               requested.absoluteString == configured.absoluteString else { return }
         let instance = companionStatusInstance
         companionProbe.check(baseURL: requested) { result in
@@ -256,7 +256,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         guard AppQueryFreshness.isFresh(note, maxAge: 8), let id = note.userInfo?["id"] as? String, UUID(uuidString: id) != nil,
               note.userInfo?["home"] as? String == AppPaths.supportDirectory.path,
               let requested = (note.userInfo?["url"] as? String).flatMap(CompanionConfig.validatedURL),
-              let configured = StateFile.shared.reload().companionURL.flatMap(CompanionConfig.validatedURL),
+              let configured = CompanionConfig.validatedURL(StateFile.shared.reload().effectiveCompanionURL),
               requested.absoluteString == configured.absoluteString else { return }
         let instance = companionStatusInstance
         Task { @MainActor in
@@ -274,7 +274,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         guard AppQueryFreshness.isFresh(note, maxAge: 24), let id = note.userInfo?["id"] as? String, UUID(uuidString: id) != nil,
               note.userInfo?["home"] as? String == AppPaths.supportDirectory.path,
               let requested = (note.userInfo?["url"] as? String).flatMap(CompanionConfig.validatedURL),
-              let configured = StateFile.shared.reload().companionURL.flatMap(CompanionConfig.validatedURL),
+              let configured = CompanionConfig.validatedURL(StateFile.shared.reload().effectiveCompanionURL),
               requested.absoluteString == configured.absoluteString else { return }
         let instance = companionStatusInstance
         CompanionApprovalsMonitor.shared.start(baseURL: requested)
@@ -301,16 +301,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         guard AppQueryFreshness.isFresh(note, maxAge: 4), let id = note.userInfo?["id"] as? String, UUID(uuidString: id) != nil,
               note.userInfo?["home"] as? String == AppPaths.supportDirectory.path,
               let requested = (note.userInfo?["url"] as? String).flatMap(CompanionConfig.validatedURL),
-              let configured = StateFile.shared.reload().companionURL.flatMap(CompanionConfig.validatedURL),
+              let configured = CompanionConfig.validatedURL(StateFile.shared.reload().effectiveCompanionURL),
               requested.absoluteString == configured.absoluteString,
               let path = note.userInfo?["path"] as? String,
               let target = CompanionConfig.cliTargetURL(base: requested, path: path) else { return }
         let instance = companionStatusInstance
-        if !backgroundCheck {
-            panelController.expand(fromMenuBar: store.settings.showIn == .menubar)
-        }
         CompanionWindowController.shared.open(baseURL: requested, path: path, allowAnyPath: true,
-                                              activate: !backgroundCheck)
+                                              activate: CompanionOpenSource.cli.requestsForeground)
         let file = AppPaths.supportDirectory
             .appendingPathComponent("companion-open-\(id)-\(instance).json")
         let payload: [String: Any] = ["opened": true, "url": target.absoluteString]

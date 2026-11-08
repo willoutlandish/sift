@@ -23,6 +23,53 @@ final class InstallationTests: XCTestCase {
         XCTAssertEqual(CompanionConfig.defaultURL(development: true, devURL: "http://localhost:8090"), "http://localhost:8090")
     }
 
+    func testFreshStateUsesBuildDefaultWithoutPersistingIt() throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let file = directory.appendingPathComponent("state.json")
+        let state = StateFile(url: file)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: file.path))
+        XCTAssertNil(state.current.companionURL)
+        XCTAssertEqual(state.current.effectiveCompanionURL, CompanionConfig.defaultURL)
+        // Startup can normalize settings or save the profile without pinning the host.
+        state.update { $0.settings.panelWidth = Settings.validWidth($0.settings.panelWidth) }
+        state.update { $0.meOpenId = "test-profile" }
+        let json = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: file)) as? [String: Any])
+        XCTAssertNil(json["companionURL"])
+        let reopened = StateFile(url: file).current
+        XCTAssertNil(reopened.companionURL)
+        XCTAssertEqual(reopened.effectiveCompanionURL, CompanionConfig.defaultURL)
+        XCTAssertEqual(reopened.companionURL(defaultingTo: "https://next.example.com"), "https://next.example.com")
+        let legacy = try JSONDecoder().decode(AppState.self, from: Data("{}".utf8))
+        XCTAssertNil(legacy.companionURL)
+        XCTAssertEqual(legacy.effectiveCompanionURL, CompanionConfig.defaultURL)
+    }
+
+    func testExplicitCompanionAddressSurvivesBuildDefaultChanges() throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let file = directory.appendingPathComponent("state.json")
+        let state = StateFile(url: file)
+        // An explicit selection stays pinned even if it equals today's default.
+        for address in ["https://chosen.example.com", CompanionConfig.productionURL] {
+            state.update { $0.companionURL = address }
+            let reopened = StateFile(url: file).current
+            XCTAssertEqual(reopened.companionURL, address)
+            XCTAssertEqual(reopened.companionURL(defaultingTo: "https://next.example.com"), address)
+        }
+        state.update { $0.companionURL = nil }
+        let json = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: file)) as? [String: Any])
+        XCTAssertNil(json["companionURL"])
+        XCTAssertEqual(StateFile(url: file).current.effectiveCompanionURL, CompanionConfig.defaultURL)
+    }
+
+    func testCLIOpenRequestsForegroundButURLSchemeDoesNot() {
+        XCTAssertTrue(CompanionOpenSource.cli.requestsForeground)
+        XCTAssertFalse(CompanionOpenSource.urlScheme.requestsForeground)
+    }
+
     func testCredentialFreeLarkIsReadOnlyAndRefusalsStayRefused() throws {
         XCTAssertFalse(LarkSource.select(hasCredentials: false).canWrite)
         XCTAssertTrue(LarkSource.select(hasCredentials: true).canWrite)

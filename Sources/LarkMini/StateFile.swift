@@ -7,7 +7,13 @@ struct AppState: Codable, Equatable {
     var settings = Settings()
     var control: ControlSeat?
     var muted: [String: Date] = [:]
-    var companionURL: String? = CompanionConfig.defaultURL
+    // Only an explicit user override is persisted. Missing means this build’s default.
+    var companionURL: String?
+    var effectiveCompanionURL: String { companionURL(defaultingTo: CompanionConfig.defaultURL) }
+
+    func companionURL(defaultingTo buildDefault: String) -> String {
+        companionURL ?? buildDefault
+    }
 
     init() {}
 
@@ -25,7 +31,7 @@ struct AppState: Codable, Equatable {
         settings = try container.decodeIfPresent(Settings.self, forKey: .settings) ?? Settings()
         control = try container.decodeIfPresent(ControlSeat.self, forKey: .control)
         muted = try container.decodeIfPresent([String: Date].self, forKey: .muted) ?? [:]
-        companionURL = try container.decodeIfPresent(String.self, forKey: .companionURL) ?? CompanionConfig.defaultURL
+        companionURL = try container.decodeIfPresent(String.self, forKey: .companionURL)
     }
 }
 

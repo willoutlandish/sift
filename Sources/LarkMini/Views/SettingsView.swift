@@ -6,6 +6,7 @@ struct SettingsView: View {
     @Environment(\.larkAccent) private var accent
     @EnvironmentObject var store: Store
     @ObservedObject private var notifications = Notifications.shared
+    @State private var companionAddress = ""
     @State private var appId = ""
     @State private var appSecret = ""
     @State private var savedNote: String?
@@ -19,6 +20,7 @@ struct SettingsView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 24) {
                     accountSection
+                    companionSection
                     controlSection
                     Divider().overlay(SiftStyle.line)
                     notificationSection
@@ -34,7 +36,10 @@ struct SettingsView: View {
             }
             if let error = store.errorText { ErrorBar(text: error) }
         }
-        .onAppear(perform: loadCredentials)
+        .onAppear {
+            loadCredentials()
+            companionAddress = store.companionURL ?? CompanionConfig.defaultURL
+        }
         .task { await notifications.refresh() }
     }
 
@@ -74,6 +79,32 @@ struct SettingsView: View {
                         .foregroundStyle(accent)
                 }
             }
+        }
+    }
+
+    private var companionSection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            sectionTitle("Companion")
+            TextField("Companion address", text: $companionAddress)
+                .textFieldStyle(.plain)
+                .font(.system(size: 11))
+                .padding(10)
+                .background(fieldBackground)
+            HStack {
+                Button("Save address") {
+                    if store.setCompanionURL(companionAddress) {
+                        companionAddress = store.companionURL ?? CompanionConfig.defaultURL
+                        savedNote = "Companion address saved"
+                    }
+                }
+                Button("Use default") {
+                    if store.setCompanionURL(nil) {
+                        companionAddress = CompanionConfig.defaultURL
+                        savedNote = "Using default Companion address"
+                    }
+                }
+            }
+            .font(.system(size: 12))
         }
     }
 

@@ -389,8 +389,7 @@ enum CLI {
             state.update { $0.companionURL = url.absoluteString }
             return ok(["ok": true, "url": url.absoluteString])
         case "open":
-            guard let raw = state.current.companionURL,
-                  let base = CompanionConfig.validatedURL(raw) else {
+            guard let base = CompanionConfig.validatedURL(state.current.effectiveCompanionURL) else {
                 return fail("No Companion URL configured. Run ollie companion set --url http://host:port")
             }
             let path = Flags(args).value("--path") ?? ""
@@ -425,13 +424,7 @@ enum CLI {
 
     private static func companionStatus(_ state: StateFile) -> Int32 {
         var payload: [String: Any] = ["ok": true]
-        guard let raw = state.current.companionURL else {
-            payload["url"] = NSNull()
-            payload["signed_in"] = NSNull()
-            payload["cookie_present"] = NSNull()
-            payload["session_cookie_state"] = "unconfigured"
-            return ok(payload)
-        }
+        let raw = state.current.effectiveCompanionURL
         payload["url"] = raw
         guard let base = CompanionConfig.validatedURL(raw) else {
             payload["valid"] = false
@@ -492,8 +485,7 @@ enum CLI {
     }
 
     private static func companionPace(_ state: StateFile) -> Int32 {
-        guard let raw = state.current.companionURL,
-              let base = CompanionConfig.validatedURL(raw) else {
+        guard let base = CompanionConfig.validatedURL(state.current.effectiveCompanionURL) else {
             return fail("No Companion URL configured. Run ollie companion set --url http://host:port")
         }
         let request = UUID().uuidString
@@ -525,8 +517,7 @@ enum CLI {
         guard AppIdentity.isDevelopment else {
             return fail("companion drag-map is only available in Ollie Dev")
         }
-        guard let raw = state.current.companionURL,
-              let base = CompanionConfig.validatedURL(raw) else {
+        guard let base = CompanionConfig.validatedURL(state.current.effectiveCompanionURL) else {
             return fail("No Companion URL configured. Run ollie companion set --url http://host:port")
         }
         let request = UUID().uuidString
