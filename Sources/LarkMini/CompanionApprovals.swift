@@ -818,7 +818,8 @@ final class CompanionApprovalsMonitor: NSObject, WKNavigationDelegate, Observabl
     }
 
     private func notify(_ approval: CompanionApproval) async {
-        let body = [approval.question, approval.shopName].compactMap { $0 }.joined(separator: " · ")
+        let displayName = approval.resource.flatMap { shopNames[$0] } ?? approval.shopName
+        let body = [approval.question, displayName].compactMap { $0 }.joined(separator: " · ")
         await Notifications.shared.postApproval(
             title: "\(approval.label) needs your approval",
             body: body,

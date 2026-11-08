@@ -15,4 +15,18 @@ final class CompanionWindowTitleTests: XCTestCase {
         XCTAssertEqual(payload.shopNames, ["one": "One"])
         XCTAssertEqual(CompanionWindowTitle.make(path: "/companion/app/one/chat", names: payload.shopNames), "Ollie · One")
     }
+    func testCanonicalPortfolioNamesAndLegacyFallback() throws {
+        for (field, expected) in [(#""display_name":"Confirmed Brand","#, "Confirmed Brand"), ("", "Legacy Shop"), (#""display_name":null,"#, "Legacy Shop")] {
+            let json = "{\"shops\":[{" + field + #""resource":"one","name":"Legacy Shop","gmv":{"mtd":1}}]}"#
+            let payload = try XCTUnwrap(CompanionPace.parse(json))
+            XCTAssertEqual(payload.shops["one"]?.name, expected)
+            XCTAssertEqual(payload.shopNames["one"], expected)
+            XCTAssertEqual(CompanionWindowTitle.make(path: "/companion/app/one/chat", names: payload.shopNames), "Ollie · " + expected)
+            let today = OllieTodayModel(pace: payload.shops, paceState: .available, snapshot: nil, activity: [:])
+            XCTAssertEqual(today.shops.first?.name, expected)
+            let waiting = OllieApprovalsModel(snapshot: nil, shopResource: "one", shopNames: payload.shopNames)
+            XCTAssertEqual(waiting.shopName, expected)
+        }
+    }
+
 }

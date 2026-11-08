@@ -42,7 +42,7 @@ struct OllieTodayView: View {
     private var model: OllieTodayModel {
         OllieTodayModel(pace: monitor.pace, paceState: monitor.paceState,
                         snapshot: snapshot, activity: activity.summaries,
-                        totals: monitor.paceTotals)
+                        totals: monitor.paceTotals, shopNames: monitor.shopNames)
     }
 
     private var header: some View {

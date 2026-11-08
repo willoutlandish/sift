@@ -167,7 +167,7 @@ enum CompanionPace {
             scope == "all" || list.viewer?.kind == "client" || ($0.scope?[scope] ?? true)
         }
         for shop in scoped {
-            guard let resource = shop.resource, let name = shop.name, let gmv = shop.gmv,
+            guard let resource = shop.resource, let name = shop.displayName, let gmv = shop.gmv,
                   !resource.isEmpty, !name.isEmpty else { continue }
             let pace = CompanionShopPace(
                 resource: resource,
@@ -199,7 +199,7 @@ enum CompanionPace {
         let metricsThrough = scoped.compactMap { $0.day?.date }.max()
         var names: [String: String] = [:]
         for shop in list.shops {
-            if let resource = shop.resource, let name = shop.name, !resource.isEmpty, !name.isEmpty { names[resource] = name }
+            if let resource = shop.resource, let name = shop.displayName, !resource.isEmpty, !name.isEmpty { names[resource] = name }
         }
         return CompanionPacePayload(shops: shops, totals: totals, metricsThrough: metricsThrough, shopNames: names, canSeeAllShops: list.viewer?.kind == "staff" && list.viewer?.scopes?["all"] != nil)
     }
@@ -233,6 +233,8 @@ enum CompanionPace {
             struct Agent: Decodable { let role: String?; let on: Bool? }
             let resource: String?
             let name: String?
+            let display_name: String?
+            var displayName: String? { display_name ?? name }
             let gmv: GMV?
             struct Day: Decodable { let date: String? }
             let day: Day?

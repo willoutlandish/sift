@@ -26,7 +26,7 @@ struct OllieApprovalsView: View {
     private var model: OllieApprovalsModel {
         OllieApprovalsModel(snapshot: snapshot,
                             shopResource: showAll ? nil : resource,
-                            category: selectedCategory)
+                            category: selectedCategory, shopNames: monitor.shopNames)
     }
 
     var body: some View {
@@ -54,6 +54,9 @@ struct OllieApprovalsView: View {
                     .font(.system(size: 11.5)).foregroundStyle(OllieStyle.dim)
             }
             .foregroundStyle(OllieStyle.text)
+            if !showAll, let shopName = model.shopName ?? name {
+                Text(shopName).font(.system(size: 12.5)).foregroundStyle(OllieStyle.dim).lineLimit(2)
+            }
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 6) {
                     chip("This shop", selected: !showAll) {

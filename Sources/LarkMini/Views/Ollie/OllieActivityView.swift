@@ -2,6 +2,7 @@ import SwiftUI
 
 struct OllieActivityView: View {
     @EnvironmentObject var store: Store
+    @ObservedObject private var monitor = CompanionApprovalsMonitor.shared
     @ObservedObject private var activity = CompanionActivity.shared
     let resource: String
     let name: String
@@ -49,12 +50,14 @@ struct OllieActivityView: View {
         .overlay(alignment: .bottom) { Rectangle().fill(OllieStyle.border).frame(height: 1) }
     }
 
+    private var displayName: String { monitor.shopNames[resource] ?? name }
+
     private var subline: String {
         switch activity.state {
         case .ready(let agents):
-            return name + " · " + OllieActivityModel.summary(agents: agents, lastRead: activity.lastRead)
+            return displayName + " · " + OllieActivityModel.summary(agents: agents, lastRead: activity.lastRead)
         default:
-            return name
+            return displayName
         }
     }
 

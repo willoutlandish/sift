@@ -93,7 +93,7 @@ struct OllieTodayModel: Equatable {
 
     init(pace: [String: CompanionShopPace], paceState: CompanionPaceState,
          snapshot: CompanionTodoSnapshot?, activity: [String: CompanionShopActivitySummary],
-         totals: CompanionPaceTotals? = nil) {
+         totals: CompanionPaceTotals? = nil, shopNames: [String: String] = [:]) {
         let paceAvailable = paceState == .available
         let approvalsAvailable = snapshot != nil
         var shops: [OllieTodayShop] = []
@@ -118,7 +118,7 @@ struct OllieTodayModel: Equatable {
             }) {
                 shops.append(OllieTodayShop(
                     resource: approvalShop.resource,
-                    name: approvalShop.name,
+                    name: shopNames[approvalShop.resource] ?? approvalShop.name,
                     pace: nil,
                     pending: approvalShop.pending,
                     activity: activity[approvalShop.resource]))
@@ -313,7 +313,7 @@ struct OllieApprovalsModel: Equatable {
     let older: [CompanionTodoItem]
     let selectedCategory: String?
 
-    init(snapshot: CompanionTodoSnapshot?, shopResource: String?, category: String? = nil) {
+    init(snapshot: CompanionTodoSnapshot?, shopResource: String?, category: String? = nil, shopNames: [String: String] = [:]) {
         let shop = shopResource.flatMap { resource in
             snapshot?.shops.first { $0.resource.caseInsensitiveCompare(resource) == .orderedSame }
         }
@@ -348,7 +348,7 @@ struct OllieApprovalsModel: Equatable {
             }
         }
 
-        self.shopName = shop?.name
+        self.shopName = shopResource.flatMap { shopNames[$0] } ?? shop?.name
         self.totalHere = scope.count
         self.totalAll = snapshot?.total ?? scope.count
         self.categories = categories
