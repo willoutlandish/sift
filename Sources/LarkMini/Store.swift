@@ -42,6 +42,7 @@ final class Store: ObservableObject {
     /// Set when a bubble opens Control, so it scrolls to the asks.
     @Published var controlFocusAsks = false
     @Published private(set) var pane: Pane = .ollie
+    @Published var ollieScreen = OllieScreen.initial
     private var bubbleExpiry: Task<Void, Never>?
     private var bubbleHeld = false
     private var bubbledNeeds = Set<String>()

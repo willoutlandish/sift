@@ -29,6 +29,9 @@ struct RailView: View {
                 VStack(spacing: 4) {
                     LarkIcon(size: 32)
                     Text("Lark").font(.system(size: 11, weight: .medium))
+                    if store.unreadCount > 0 {
+                        Text("\(store.unreadCount) unread").font(.system(size: 9)).lineLimit(1).minimumScaleFactor(0.7)
+                    }
                 }
                 .frame(width: 48, height: 58)
                 .background(selection(store.pane.railItem == .lark))

@@ -255,7 +255,6 @@ final class PanelController {
 
     private func openFromHead() {
         expand()
-        store.showOllie()
     }
 
     func show() {
@@ -264,6 +263,7 @@ final class PanelController {
             return
         }
         layout()
+        panel.alphaValue = 1
         panel.orderFrontRegardless()
     }
 

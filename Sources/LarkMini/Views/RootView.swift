@@ -12,7 +12,6 @@ struct RootView: View {
                     .transition(.opacity)
             } else {
                 CollapsedBubble()
-                    .transition(.opacity)
             }
         }
         .disabled(updates.requiredVersion != nil)
@@ -56,6 +55,7 @@ struct CollapsedBubble: View {
     @EnvironmentObject var store: Store
     @Environment(\.siftReduceMotion) private var reduceMotion
     @ObservedObject private var gaze = GazeTracker.shared
+    @ObservedObject private var approvals = CompanionApprovalsMonitor.shared
 
     var body: some View {
         ZStack(alignment: .trailing) {
@@ -84,8 +84,8 @@ struct CollapsedBubble: View {
                         UnreadDot(size: 7)
                             .padding(2).background(SiftStyle.rail, in: Circle())
                             .offset(x: 2, y: -2)
-                    } else if store.unreadCount > 0 {
-                        Text(store.unreadCount > 9 ? "9+" : "\(store.unreadCount)")
+                    } else if approvals.approvalBadge > 0 {
+                        Text("\(approvals.approvalBadge)")
                             .font(.system(size: 10, weight: .semibold))
                             .foregroundStyle(.white)
                             .padding(.horizontal, 4)

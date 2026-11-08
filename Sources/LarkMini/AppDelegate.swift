@@ -563,9 +563,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         outsideMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) { [weak self] _ in
             guard let self else { return }
             Task { @MainActor in
-                guard self.store.isExpanded, self.store.settings.collapseOnOutsideClick else { return }
-                let point = NSEvent.mouseLocation
-                if !self.panelController.panel.frame.contains(point) {
+                if PanelOutsideClick.shouldCollapse(expanded: self.store.isExpanded,
+                    enabled: self.store.settings.collapseOnOutsideClick,
+                    point: NSEvent.mouseLocation, frame: self.panelController.panel.frame) {
                     self.panelController.collapse(hard: true)
                 }
             }
@@ -577,4 +577,11 @@ enum DockRouting {
     enum Destination { case panel, companion }
     static func destination(panelOpen: Bool) -> Destination { .companion }
     static func shouldRaiseOnActivation(panelInteraction: Bool) -> Bool { !panelInteraction }
+}
+
+
+enum PanelOutsideClick {
+    static func shouldCollapse(expanded: Bool, enabled: Bool, point: CGPoint, frame: CGRect) -> Bool {
+        expanded && enabled && !frame.contains(point)
+    }
 }
