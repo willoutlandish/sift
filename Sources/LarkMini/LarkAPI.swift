@@ -653,6 +653,10 @@ actor LarkAPI {
     /// as a whole within `textLimit`; the rest stays in Lark.
     static func flattenRich(_ content: [String: Any], rows key: String) -> String {
         var body = content
+        if let cardBody = content["body"] as? [String: Any], let elements = cardBody[key] { body[key] = elements }
+        if let header = content["header"] as? [String: Any] {
+            body["title"] = header["title"] as? String ?? (header["title"] as? [String: Any])?["content"] as? String
+        }
         for _ in 0..<2 where body[key] == nil && body["title"] == nil {
             // A locale wrapper has a handful of keys; a huge object is not one.
             guard body.count <= 50, let inner = body.keys.sorted().compactMap({ body[$0] as? [String: Any] }).first else { break }
@@ -662,7 +666,8 @@ actor LarkAPI {
         var total = 0
         if let title = body["title"] as? String, !title.isEmpty { lines.append(clip(title, limit: 4_000)) }
         var controls = false
-        for row in (body[key] as? [[Any]] ?? []).prefix(200) {
+        let rows = (body[key] as? [Any] ?? []).prefix(200).map { $0 as? [Any] ?? [$0] }
+        for row in rows {
             guard total < textLimit else { break }
             let line = row.prefix(200).compactMap { $0 as? [String: Any] }
                 .map { clip(inline($0, controls: &controls, depth: 0), limit: 4_000) }.joined()
@@ -683,7 +688,7 @@ actor LarkAPI {
     }
 
     private static func inline(_ element: [String: Any], controls: inout Bool, depth: Int) -> String {
-        let text = element["text"] as? String ?? ""
+        let text = element["text"] as? String ?? element["content"] as? String ?? (element["text"] as? [String: Any])?["content"] as? String ?? ""
         switch element["tag"] as? String {
         case "a":
             let href = element["href"] as? String ?? ""

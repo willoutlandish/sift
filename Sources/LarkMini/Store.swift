@@ -535,15 +535,15 @@ final class Store: ObservableObject {
         }
     }
 
-    nonisolated private static func previewText(for message: ChatMessage) -> String {
+    nonisolated static func previewText(for message: ChatMessage) -> String {
         let body: String
         switch message.type {
         case "file": body = message.fileName ?? "File"
-        case "interactive": body = "Card"
+        case "interactive": body = message.text.isEmpty ? "Card · open it in Lark" : message.text
         default: body = message.text
         }
         let prefix = message.isMine ? "You: " : ""
-        return prefix + body.replacingOccurrences(of: "\n", with: " ")
+        return prefix + LarkPreview.plain(body)
     }
 
     var pinnedChats: [Chat] {

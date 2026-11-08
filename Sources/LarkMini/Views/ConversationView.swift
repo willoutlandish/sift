@@ -48,6 +48,7 @@ struct ConversationView: View {
 
     private var header: some View {
         HStack(spacing: 10) {
+            IconButton(symbol: "chevron.left", help: "Back to Lark chats") { store.closeConversation() }
             AvatarView(chat: chat, size: 32)
             VStack(alignment: .leading, spacing: 4) {
                 Text(chat.displayName).font(.system(size: 16, weight: .semibold)).lineLimit(1)

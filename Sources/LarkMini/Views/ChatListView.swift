@@ -168,7 +168,7 @@ struct ChatRow: View {
                             }
                         }
                         if store.settings.showPreviewText {
-                            Text(store.previews[chat.id]?.text ?? "Preview unavailable")
+                            Text(LarkPreview.plain(store.previews[chat.id]?.text ?? "Preview unavailable"))
                                 .font(.system(size: 12)).foregroundStyle(SiftStyle.secondary)
                                 .lineLimit(2).lineSpacing(2).frame(maxWidth: .infinity, alignment: .leading)
                         }
