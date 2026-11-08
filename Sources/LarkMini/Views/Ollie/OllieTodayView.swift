@@ -43,8 +43,10 @@ struct OllieTodayView: View {
 
     private var header: some View {
         HStack(alignment: .firstTextBaseline) {
-            Text("Today").font(.system(size: 20, weight: .semibold))
-            Spacer(minLength: 0)
+            HStack {
+                Text("Today").font(.system(size: 20, weight: .semibold))
+                Spacer(minLength: 0)
+            }.panelDragHandle().help("Drag to move Ollie")
             OllieCompanionButton()
             Text(Self.dateText()).font(.system(size: 12)).foregroundStyle(OllieStyle.dim)
         }

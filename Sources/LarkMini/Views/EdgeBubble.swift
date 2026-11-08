@@ -195,7 +195,8 @@ final class EdgeBubbleController {
         }
         guard let head = PanelBridge.shared.panel?.frame,
               let screen = (PanelBridge.shared.panel?.screen ?? NSScreen.main)?.visibleFrame else { return }
-        var frame = NSRect(origin: NSPoint(x: head.minX - Self.size.width + 6, y: head.midY - 34), size: Self.size)
+        let x = head.midX < screen.midX ? head.maxX - 6 : head.minX - Self.size.width + 6
+        var frame = NSRect(origin: NSPoint(x: x, y: head.midY - 34), size: Self.size)
         frame.origin.y = min(max(frame.minY, screen.minY + 8), screen.maxY - Self.size.height - 8)
         panel.setFrame(frame, display: false)
         panel.orderFrontRegardless()

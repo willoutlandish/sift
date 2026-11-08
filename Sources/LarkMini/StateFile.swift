@@ -7,6 +7,7 @@ struct AppState: Codable, Equatable {
     var settings = Settings()
     var control: ControlSeat?
     var muted: [String: Date] = [:]
+    var edgePositions: [String: PanelEdgePosition] = [:]
     // Only an explicit user override is persisted. Missing means this build’s default.
     var companionURL: String?
     var effectiveCompanionURL: String { companionURL(defaultingTo: CompanionConfig.defaultURL) }
@@ -18,7 +19,7 @@ struct AppState: Codable, Equatable {
     init() {}
 
     private enum CodingKeys: String, CodingKey {
-        case pinned, lastSeen, meOpenId, settings, control, muted, companionURL
+        case pinned, lastSeen, meOpenId, settings, control, muted, companionURL, edgePositions
     }
 
     /// Old files must not fail to decode when a field is added, or every
@@ -31,6 +32,7 @@ struct AppState: Codable, Equatable {
         settings = try container.decodeIfPresent(Settings.self, forKey: .settings) ?? Settings()
         control = try container.decodeIfPresent(ControlSeat.self, forKey: .control)
         muted = try container.decodeIfPresent([String: Date].self, forKey: .muted) ?? [:]
+        edgePositions = try container.decodeIfPresent([String: PanelEdgePosition].self, forKey: .edgePositions) ?? [:]
         companionURL = try container.decodeIfPresent(String.self, forKey: .companionURL)
     }
 }

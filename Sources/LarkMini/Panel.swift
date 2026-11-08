@@ -20,22 +20,12 @@ final class FirstMouseContainerView: NSView {
 
 final class FloatingPanel: NSPanel {
     var onEscape: (() -> Void)?
-    var onCollapsedTap: (() -> Void)?
 
     override var canBecomeKey: Bool { true }
     override var canBecomeMain: Bool { false }
 
     override func cancelOperation(_ sender: Any?) {
         onEscape?()
-    }
-
-    override func mouseUp(with event: NSEvent) {
-        // Fallback for clicks the hosting view swallows while collapsed.
-        if frame.height < 100, let onCollapsedTap {
-            DispatchQueue.main.async { onCollapsedTap() }
-            return
-        }
-        super.mouseUp(with: event)
     }
 
     override func sendEvent(_ event: NSEvent) {
@@ -52,12 +42,36 @@ final class FloatingPanel: NSPanel {
 /// normal SwiftUI hit testing.
 final class BubbleClickView: NSView {
     var onTap: (() -> Void)?
+    var onMove: ((CGPoint) -> Void)?
+    var onMoveEnded: (() -> Void)?
+    private var drag = PanelPointerDrag()
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 
+    override func mouseDown(with event: NSEvent) {
+        drag.begin(at: NSEvent.mouseLocation)
+    }
+    override func mouseDragged(with event: NSEvent) {
+        if let delta = drag.move(to: NSEvent.mouseLocation) { onMove?(delta) }
+    }
     override func mouseUp(with event: NSEvent) {
-        // Let the click finish before the panel replaces this view, or the
-        // same event lands on whatever control appears under the cursor.
-        DispatchQueue.main.async { self.onTap?() }
+        if drag.finish() { onMoveEnded?() }
+        else { DispatchQueue.main.async { self.onTap?() } }
+    }
+}
+
+struct PanelPointerDrag {
+    private var start: CGPoint?
+    private(set) var moved = false
+    mutating func begin(at point: CGPoint) { start = point; moved = false }
+    mutating func move(to point: CGPoint) -> CGPoint? {
+        guard let start else { return nil }
+        let delta = CGPoint(x: point.x - start.x, y: point.y - start.y)
+        if hypot(delta.x, delta.y) >= 5 { moved = true }
+        return moved ? delta : nil
+    }
+    mutating func finish() -> Bool {
+        defer { start = nil; moved = false }
+        return moved
     }
 }
 
@@ -67,7 +81,7 @@ struct PanelDragHandle: ViewModifier {
 
     func body(content: Content) -> some View {
         content.contentShape(Rectangle()).gesture(
-            DragGesture(minimumDistance: 3)
+            DragGesture(minimumDistance: 5)
                 .onChanged { _ in
                     guard let panel = PanelBridge.shared.panel, panel.frame.height > 100 else { return }
                     let pointer = NSEvent.mouseLocation
@@ -124,6 +138,7 @@ final class PanelController {
     private var collapsePending = false
     private var anchorToMenuBar = false
     private var measuredContentHeight: CGFloat?
+    private var duckDragOrigin: CGPoint?
     var menuBarAnchor: (() -> NSRect?)?
 
     init(store: Store) {
@@ -182,8 +197,15 @@ final class PanelController {
         bubbleClick.onTap = { [weak self] in
             MainActor.assumeIsolated { self?.openFromHead() }
         }
-        panel.onCollapsedTap = { [weak self] in
-            MainActor.assumeIsolated { self?.openFromHead() }
+        bubbleClick.onMove = { [weak self] delta in
+            guard let self, self.store.settings.showIn.showsEdgeHead else { return }
+            if self.duckDragOrigin == nil { self.duckDragOrigin = self.panel.frame.origin }
+            guard let origin = self.duckDragOrigin else { return }
+            self.panel.setFrameOrigin(CGPoint(x: origin.x + delta.x, y: origin.y + delta.y))
+        }
+        bubbleClick.onMoveEnded = { [weak self] in
+            self?.duckDragOrigin = nil
+            self?.savePanelPosition()
         }
 
         NotificationCenter.default.addObserver(forName: .expandPanel, object: nil, queue: .main) { [weak self] _ in
@@ -330,6 +352,9 @@ final class PanelController {
                               height: height)
             if let anchor {
                 rect = PanelGeometry.underStatusItem(size: size, anchor: anchor, in: visible, margin: margin)
+            } else if store.settings.showIn.showsEdgeHead {
+                rect = PanelGeometry.edgeFrame(size: size, in: visible,
+                    position: savedEdgePosition(on: targetScreen), margin: margin)
             } else {
                 var proposed = PanelGeometry.rightEdge(size: size, in: visible, margin: margin)
                 if let saved = UserDefaults.standard.array(forKey: "expandedPanelOrigin") as? [Double], saved.count == 2,
@@ -340,7 +365,8 @@ final class PanelController {
             }
         } else {
             // Leave room for the resting head, its aura and unread badge.
-            rect = PanelGeometry.rightEdge(size: NSSize(width: 72, height: 72), in: visible, margin: 10)
+            rect = PanelGeometry.edgeFrame(size: NSSize(width: 72, height: 72), in: visible,
+                position: savedEdgePosition(on: targetScreen), margin: 10)
         }
         panel.hasShadow = store.isExpanded
         panel.styleMask = PanelLevel.styleMask(isExpanded: store.isExpanded, base: panel.styleMask)
@@ -349,8 +375,29 @@ final class PanelController {
         resizeContent()
     }
 
+    private func displayKey(_ screen: NSScreen?) -> String {
+        guard let id = (screen?.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber)?.uint32Value,
+              let uuid = CGDisplayCreateUUIDFromDisplayID(id)?.takeRetainedValue() else { return "main" }
+        return CFUUIDCreateString(nil, uuid) as String
+    }
+
+    private func savedEdgePosition(on screen: NSScreen?) -> PanelEdgePosition {
+        StateFile.shared.reload().edgePositions[displayKey(screen)] ?? PanelEdgePosition()
+    }
+
     private func savePanelPosition() {
-        guard store.isExpanded, let visible = (panel.screen ?? NSScreen.main ?? NSScreen.screens.first)?.visibleFrame else { return }
+        let screen = NSScreen.screens.first { $0.frame.contains(NSEvent.mouseLocation) } ?? panel.screen ?? NSScreen.main
+        guard let visible = screen?.visibleFrame else { return }
+        if store.settings.showIn.showsEdgeHead {
+            anchorToMenuBar = false
+            let position = PanelGeometry.snap(panel.frame, in: visible, margin: margin)
+            StateFile.shared.update { $0.edgePositions[displayKey(screen)] = position }
+            panel.setFrame(PanelGeometry.edgeFrame(size: panel.frame.size, in: visible,
+                                                  position: position, margin: margin), display: true)
+            resizeContent()
+            return
+        }
+        guard store.isExpanded else { return }
         let frame = PanelGeometry.clamp(panel.frame, in: visible, margin: margin)
         // Dropped against the right edge means docked again, beside the head.
         if PanelGeometry.docks(frame, in: visible, margin: margin) {
@@ -371,7 +418,27 @@ final class PanelController {
     }
 }
 
+struct PanelEdgePosition: Codable, Equatable {
+    enum Edge: String, Codable { case left, right }
+    var edge: Edge = .right
+    var verticalFraction: Double = 0.5
+}
+
 enum PanelGeometry {
+    static func edgeFrame(size: CGSize, in visible: CGRect, position: PanelEdgePosition, margin: CGFloat) -> CGRect {
+        let fraction = position.verticalFraction.isFinite ? min(1, max(0, position.verticalFraction)) : 0.5
+        return clamp(CGRect(x: position.edge == .left ? visible.minX + margin : visible.maxX - margin - size.width,
+                            y: visible.minY + visible.height * fraction - size.height / 2,
+                            width: size.width, height: size.height), in: visible, margin: margin)
+    }
+
+    static func snap(_ frame: CGRect, in visible: CGRect, margin: CGFloat) -> PanelEdgePosition {
+        let clamped = clamp(frame, in: visible, margin: margin)
+        return PanelEdgePosition(edge: frame.midX < visible.midX ? .left : .right,
+            verticalFraction: visible.height > 0 ? Double((clamped.midY - visible.minY) / visible.height) : 0.5)
+    }
+
+
     static func clamp(_ frame: NSRect, in visible: NSRect, margin: CGFloat) -> NSRect {
         let width = min(frame.width, max(0, visible.width - margin * 2))
         let height = min(frame.height, max(0, visible.height - margin * 2))
