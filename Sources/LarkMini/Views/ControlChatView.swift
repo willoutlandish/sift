@@ -108,6 +108,9 @@ struct ControlChatView: View {
         case .off: EmptyView()
         case .unavailable(let reason):
             Text("Asks unknown · \(reason)").font(.system(size: 11)).foregroundStyle(SiftStyle.muted).padding(.bottom, 16)
+        case .stale(let open, let reason):
+            Text("Last known asks · stale · \(reason)").font(.system(size: 11)).foregroundStyle(SiftStyle.muted)
+            ForEach(open) { AskCard(ask: $0, links: store.chatLinks).padding(.bottom, 12) }
         case .available(let open):
             ForEach(open) { AskCard(ask: $0, links: store.chatLinks).padding(.bottom, 12) }
             if !open.isEmpty { Color.clear.frame(height: 10) }

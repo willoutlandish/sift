@@ -161,6 +161,7 @@ final class Store: ObservableObject {
         switch asks {
         case .off: return "Off · this Control serves no open asks"
         case .unavailable(let reason): return "Unknown · " + reason
+        case .stale(let open, let reason): return "\(open.count) last known · stale · " + reason
         case .available(let open): return open.isEmpty ? "None open" : "\(open.count) open"
         }
     }
@@ -1251,7 +1252,8 @@ final class Store: ObservableObject {
     private func controlUnavailable(_ reason: String) {
         controlStatus = "Connection unavailable"
         controlActivity = nil
-        errorText = "Control: \(reason)"
+        errorText = "Control: \(ControlError.message(reason))"
+        asks = AskReading.unavailable(ControlError.message(reason)).retainingLastGood(asks)
     }
 
     // MARK: - Live Paseo connection
@@ -1365,10 +1367,10 @@ final class Store: ObservableObject {
         controlActivity = reading.activity
         controlHasOlder = reading.hasOlder
         controlNeedsInput = reading.needsInput
-        asks = reading.asks
+        asks = reading.asks.retainingLastGood(asks)
         controlPermissions = reading.permissions
         controlServerId = reading.serverId ?? controlServerId
-        reconcileNeeds(permissions: Set(reading.permissions.map(\.id)), asks: reading.asks)
+        reconcileNeeds(permissions: Set(reading.permissions.map(\.id)), asks: asks)
         for permission in reading.permissions where !seenPermissions.contains(permission.id) {
             needArrival(id: "permission-\(permission.id)", text: permission.summary)
         }

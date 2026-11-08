@@ -336,7 +336,7 @@ enum CLI {
             let reading = try await AgentProviders.resolve(seat.provider).readFollowing(seat, tail: 1, state: state).1
             switch reading.asks {
             case .off: return ok(["ok": true, "configured": false, "asks": []])
-            case .unavailable(let reason): return fail("Asks unavailable: \(reason)")
+            case .unavailable(let reason), .stale(_, let reason): return fail("Asks unavailable: \(reason)")
             case .available(let asks):
                 return ok(["ok": true, "configured": true, "asks": asks.map {
                     ["id": $0.id, "plan": $0.plan, "title": $0.title, "question": $0.question,

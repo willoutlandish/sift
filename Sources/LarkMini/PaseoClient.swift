@@ -353,8 +353,7 @@ final class PaseoClient {
 
     /// The script's first line is the reason; its stack names temporary files.
     static func reason(_ message: String) -> String {
-        let line = message.split(separator: "\n").first.map(String.init) ?? message
-        return line.hasPrefix("Error: ") ? String(line.dropFirst(7)) : line
+        ControlError.message(message)
     }
 
     func read(agentId: String, host: String? = nil, tail: Int = 80) async throws -> AgentReading {
@@ -389,7 +388,7 @@ final class PaseoClient {
                 if let reading = Self.reading(text) { loadedNow(); onReading(reading) }
                 else if let json = try? JSONSerialization.jsonObject(with: line) as? [String: Any], let error = json["error"] as? String {
                     loadedNow()
-                    onError(error)
+                    onError(ControlError.message(error))
                 } else if !text.hasPrefix("(node:") { onError(Self.reason(text)) }  // Node's own warnings are not errors
             }, onExit: { status in
                 try? FileManager.default.removeItem(at: script)
@@ -476,6 +475,8 @@ final class PaseoClient {
     import { pathToFileURL } from 'node:url';
     import { createInterface } from 'node:readline';
     const [root, id, host, count, mode] = process.argv.slice(2);
+    \#(ControlError.script)
+    process.on('uncaughtException', (error) => { process.stderr.write(errorReason(error) + '\n'); process.exit(1); });
     const load = (path) => import(pathToFileURL(root + path));
     const {connectToDaemon} = await load('/utils/client.js');
     const {selectDaemonTarget} = await load('/utils/daemon-target.js');
@@ -554,7 +555,7 @@ final class PaseoClient {
         const listed = await client.listPlugins();
         const suite = (Array.isArray(listed) ? listed : listed?.plugins ?? []).find(p => p.id === 'control-plugins');
         asks = suite?.status === 'running' ? bound(await client.invokePluginRpc('control-plugins', 'asks.open', {}), 50000) : {status:'off'};
-      } catch { asks = {status:'unavailable', reason:"This Control's plugins do not serve open asks yet"}; }
+      } catch (error) { asks = {status:'unavailable', reason:errorReason(error)}; }
       const permissions = (agent.pendingPermissions ?? []).slice(0, 20).map(p => bound({id:String(p.id ?? ''), kind:p.kind ?? 'other',
         name:p.name ?? '', title:p.title ?? '', description:p.description ?? '', input:p.input ?? null,
         detail:p.detail ?? null, actions:(p.actions ?? []).slice(0, 10).map(a => a.label)}, 3000)).filter(p => p.id);
@@ -595,7 +596,7 @@ final class PaseoClient {
           if (line !== sent) { sent = line; process.stdout.write(line + '\n'); }
         } catch (e) {
           sent = '';
-          process.stdout.write(JSON.stringify({error:String(e?.message ?? e).split('\n')[0]}) + '\n');
+          process.stdout.write(JSON.stringify({error:errorReason(e)}) + '\n');
           if (++failures >= 3) process.exit(1);
         } finally {
           busy = false; last = Date.now();

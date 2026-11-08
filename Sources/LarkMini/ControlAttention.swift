@@ -37,8 +37,15 @@ enum AskReading: Equatable {
     case off
     case unavailable(String)
     case available([OpenAsk])
+    case stale([OpenAsk], String)
 
-    var asks: [OpenAsk] { if case .available(let asks) = self { return asks }; return [] }
+    var asks: [OpenAsk] {
+        switch self { case .available(let asks), .stale(let asks, _): return asks; default: return [] }
+    }
+    func retainingLastGood(_ previous: AskReading) -> AskReading {
+        if case .unavailable(let reason) = self, !previous.asks.isEmpty { return .stale(previous.asks, reason) }
+        return self
+    }
 }
 
 enum AskInbox {
@@ -60,7 +67,7 @@ enum AskInbox {
                                question: question, recommendation: row["recommendation"] as? String ?? "", link: link)
             })
         default:
-            let reason = reply["reason"] as? String ?? ""
+            let reason = ControlError.message(reply["reason"])
             return .unavailable(reason.isEmpty ? "Control's asks are unavailable" : reason)
         }
     }
