@@ -7,6 +7,11 @@ final class ApprovalRoutingTests: XCTestCase {
         XCTAssertEqual(OllieApprovalBatch.clickPath(resources: ["one"], kind: "budget"), "/companion/app/one/approvals")
         XCTAssertEqual(OllieApprovalBatch.clickPath(resources: ["one", "two"], kind: "budget"), "/companion/app/approvals")
     }
+    func testBudgetWithoutLinkUsesStaffDecisionsRatherThanClientSendInbox() {
+        XCTAssertEqual(CompanionApprovals.reviewPath(source: "agent_blocker", resource: "shop"), "/companion/app/approvals")
+        XCTAssertEqual(CompanionApprovals.reviewPath(source: "agent_question", resource: "shop"), "/companion/app/approvals")
+        XCTAssertEqual(CompanionApprovals.reviewPath(source: "send_approval", resource: "shop"), "/companion/app/shop/approvals")
+    }
     func testServerItemLinkPreservesPathAndQuery() {
         let base = URL(string: "https://example.com")!
         let link = "/companion/app/ajmal/approvals?item=budget%3Aone"

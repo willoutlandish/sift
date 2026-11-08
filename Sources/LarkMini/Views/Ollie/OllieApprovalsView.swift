@@ -252,7 +252,7 @@ private struct OllieApprovalItemRow: View {
                 Text("To: \(item.recipients.joined(separator: ", "))").font(.system(size: 11))
             }
             if readOnly {
-                Button("Open item") { store.openApprovalItem(item) }
+                Button(item.openItemLabel) { store.openApprovalItem(item) }
                     .buttonStyle(.plain).font(.system(size: 11.5, weight: .medium))
                     .foregroundStyle(OllieStyle.dim)
             } else if item.canAnswer {
@@ -269,19 +269,19 @@ private struct OllieApprovalItemRow: View {
                                 .foregroundStyle(answer == "approve" ? OllieStyle.lime : OllieStyle.dim)
                                 .disabled(busy)
                         } else if ["change", "send_edited"].contains(answer) {
-                            Button(label(answer)) { store.openCompanion(path: item.clickPath) }
+                            Button(label(answer)) { store.openCompanion(path: item.reviewPath) }
                                 .buttonStyle(.plain).font(.system(size: 11.5, weight: .medium))
                                 .foregroundStyle(OllieStyle.dim)
                         }
                     }
-                    Button("Open item") { store.openApprovalItem(item) }
+                    Button(item.openItemLabel) { store.openApprovalItem(item) }
                         .buttonStyle(.plain).font(.system(size: 11.5, weight: .medium))
                         .foregroundStyle(OllieStyle.dim)
                     Spacer(minLength: 0)
                     if busy { OllieSpinner() }
                 }
             } else {
-                Button("Open item") { store.openApprovalItem(item) }
+                Button(item.openItemLabel) { store.openApprovalItem(item) }
                     .buttonStyle(.plain).font(.system(size: 11.5, weight: .medium))
                     .foregroundStyle(OllieStyle.dim)
             }

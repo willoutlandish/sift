@@ -180,6 +180,10 @@ struct CompanionTodoItem: Identifiable, Equatable {
     let resource: String
     var categoryName: String? = nil
 
+    // Staff decisions such as budgets are not the shop's client/send approval inbox.
+    var reviewPath: String { CompanionApprovals.reviewPath(source: source, resource: resource) }
+    var openItemLabel: String { itemLink == nil ? "Review in Companion" : "Open item" }
+
     var confirmationTarget: CompanionConfirmationTarget {
         .init(id: id, version: decision?.version, sendVersion: decision?.sendVersion,
               draft: payloadPreview, recipients: recipients, answers: answers)
@@ -280,6 +284,11 @@ enum CompanionApprovals {
 
     static func diff(current: [CompanionApproval], seen: Set<String>) -> [CompanionApproval] {
         current.filter { !seen.contains($0.id) }
+    }
+
+    static func reviewPath(source: String, resource: String?) -> String {
+        ["send_approval", "creator_dm_reply"].contains(source)
+            ? clickPath(resource: resource) : clickPath(resource: nil)
     }
 
     static func clickPath(resource: String?) -> String {
@@ -734,7 +743,7 @@ final class CompanionApprovalsMonitor: NSObject, WKNavigationDelegate, Observabl
             || (finalURL.map(CompanionSignInProbe.isSignIn) ?? false) {
             state = .signedOut
             latestApprovals = []
-        recomputeBadge()
+            recomputeBadge()
             failures += 1
             schedule(after: backoff)
             return
@@ -794,8 +803,8 @@ final class CompanionApprovalsMonitor: NSObject, WKNavigationDelegate, Observabl
             paceState = .available
         } else if state == .hidden {
             pace = [:]
-        shopNames = [:]
-        canSeeAllShops = false
+            shopNames = [:]
+            canSeeAllShops = false
             paceTotals = nil
             paceState = .hidden
         } else if pace.isEmpty { paceState = .failed }
