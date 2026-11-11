@@ -386,7 +386,9 @@ enum CLI {
             object["ok"] = true
             return ok(object)
         case "answer":
-            // The same as tapping Yes or Not now in the Management chat; for agents and end-to-end tests.
+            // The same as tapping Yes or Not now, for end-to-end tests. Ollie Dev only: the real app
+            // never takes a Yes from another process.
+            guard AppIdentity.isDevelopment else { return fail("suggest answer works in Ollie Dev only; in Ollie, tap it.") }
             let rest = Array(args.dropFirst())
             guard rest.count == 2, ["yes", "no", "not-now"].contains(rest[1]) else {
                 return fail("suggest answer needs <id or prefix> yes|not-now (ids from `ollie suggest list`)")
@@ -761,7 +763,7 @@ enum CLI {
                   demo [strategy|samples|creator]  preview one; nothing is read or written
                   refresh                          read the agents' proposals now
                   list                             what is on offer and what each shop read found
-                  answer <id> yes|not-now          as if tapped in the Management chat
+                  answer <id> yes|not-now          as if tapped (Ollie Dev only, for tests)
                   watch | unwatch <resource>       always read this shop's Strategy Manager
                   on | off | status
       settings  set --show-in menubar|edge|both

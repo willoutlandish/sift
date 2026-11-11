@@ -245,6 +245,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             case "demo": OllieSuggestionCenter.shared.showDemo(kind)
             case "refresh": OllieSuggestionCenter.shared.forceRefresh()
             case "answer":
+                // Any process on the Mac can post this notification, so only the dev build, which is
+                // read-only on production, takes a Yes from it. The real Ollie answers only on a tap.
+                guard AppIdentity.isDevelopment else { return }
                 let id = note.userInfo?["id"] as? String ?? ""
                 let yes = note.userInfo?["yes"] as? Bool ?? false
                 OllieSuggestionCenter.shared.answer(idPrefix: id, yes: yes)
