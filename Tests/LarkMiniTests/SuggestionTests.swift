@@ -23,14 +23,17 @@ final class SuggestionTests: XCTestCase {
                                         "sm:res/1:rec:GMV_first"])
         let draft = list[0]
         XCTAssertEqual(draft.byline, "Strategy Manager · YUNJAC")
-        XCTAssertEqual(draft.yes, .post(path: "/api/oo/shops/res%2F1/strategy-manager/statements",
-                                        body: ["text": "GMV $26,000 this month."]))
-        XCTAssertEqual(draft.notNow, .post(path: "/api/oo/shops/res%2F1/strategy-manager/recommendations/statement_draft:2026-11-01/dismiss", body: [:]))
+        XCTAssertEqual(draft.yes, .applyDraft(resource: "res/1", applyText: "GMV $26,000 this month."),
+                       "the draft is re-read before it is applied, as the in-app card does")
+        XCTAssertEqual(draft.notNow, .post(path: "/api/oo/shops/res%2F1/strategy-manager/recommendations/statement_draft%3A2026-11-01/dismiss", body: [:]),
+                       "keys are encoded like encodeURIComponent in StrategyManagerOllieCard")
+        XCTAssertEqual(OllieSuggestions.currentDraftText(strategyBody), "GMV $26,000 this month.")
+        XCTAssertNil(OllieSuggestions.currentDraftText(#"{"agent":{},"draft":null}"#))
         let rec = list[1]
         XCTAssertEqual(rec.text, "I think we should lower the November GMV target to $25,000.")
         XCTAssertEqual(rec.yesLabel, "Yes, do it")
         XCTAssertEqual(rec.doneText, "Handed to Sian")
-        XCTAssertEqual(rec.yes, .post(path: "/api/oo/shops/res%2F1/strategy-manager/recommendations/lower_gmv_target:2026-11:25000/apply", body: [:]))
+        XCTAssertEqual(rec.yes, .post(path: "/api/oo/shops/res%2F1/strategy-manager/recommendations/lower_gmv_target%3A2026-11%3A25000/apply", body: [:]))
         XCTAssertEqual(list[2].text, "I think we should GMV is behind.", "acronyms keep their case")
     }
 
@@ -45,7 +48,9 @@ final class SuggestionTests: XCTestCase {
         let notMine = item(id: "a2", mine: false)
         let send = item(id: "a3", mine: true, source: "send_approval")
         let noRec = item(id: "a4", mine: true, recommendationAnswer: nil)
-        let snapshot = CompanionTodoSnapshot(total: 4, shops: [], orderedItems: [ok, notMine, send, noRec])
+        let incentive = item(id: "a5", mine: true, source: "incentive")
+        let withRecipient = item(id: "a6", mine: true, recipients: ["Creator A"])
+        let snapshot = CompanionTodoSnapshot(total: 6, shops: [], orderedItems: [ok, notMine, send, noRec, incentive, withRecipient])
         let list = OllieSuggestions.approvals(snapshot)
         XCTAssertEqual(list.map(\.id), ["approval:a1:v1"])
         XCTAssertEqual(list[0].agent, "Creator Manager")
@@ -91,13 +96,21 @@ final class SuggestionTests: XCTestCase {
                        "a small portfolio with no flags is read whole")
         let many = (0..<20).map { shop("S\($0)", sm: false) }
         XCTAssertTrue(OllieSuggestionCenter.strategyShops(many).isEmpty, "a big portfolio only reads flagged shops")
+        let flagged = (10..<35).map { shop("S\($0)", sm: true) }
+        let pool = OllieSuggestionCenter.strategyShops(flagged)
+        XCTAssertEqual(pool.count, 25, "every flagged shop is in the pool")
+        let first = OllieSuggestionCenter.strategyBatch(pool, cursor: 0)
+        let wrap = OllieSuggestionCenter.strategyBatch(pool, cursor: 20)
+        XCTAssertEqual(first.count, 10)
+        XCTAssertEqual(wrap.map(\.name), ["S30", "S31", "S32", "S33", "S34", "S10", "S11", "S12", "S13", "S14"],
+                       "rounds take turns and wrap, so no shop is starved")
     }
 
     private func item(id: String, mine: Bool, source: String = "agent_ask",
-                      recommendationAnswer: String? = "approve") -> CompanionTodoItem {
+                      recommendationAnswer: String? = "approve", recipients: [String] = []) -> CompanionTodoItem {
         CompanionTodoItem(
             id: id, label: "Creator Manager", title: "Approve 12 sample requests?", age: "1h",
-            clickPath: "/companion/app", answers: ["approve", "skip"], canAnswer: true, recipients: [],
+            clickPath: "/companion/app", answers: ["approve", "skip"], canAnswer: true, recipients: recipients,
             canApprove: true, payloadPreview: nil,
             decision: CompanionDecisionTarget(id: id, version: "v1", sendVersion: nil),
             source: source, kind: "", statusReason: nil, needsYouBecause: nil, priorityBand: nil,
@@ -122,6 +135,21 @@ final class SuggestionFeedTests: XCTestCase {
         XCTAssertTrue(center.feed.isEmpty)
         XCTAssertEqual(center.history.last?.yes, true)
         XCTAssertTrue(center.working.isEmpty)
+    }
+
+    func testFailedNotNowKeepsTheIdeaOpenAndResetClearsEverything() async {
+        let center = OllieSuggestionCenter()
+        center.seedDemo()
+        let real = OllieSuggestion(id: "sm:r:rec:k", agent: "Strategy Manager", shop: "S", text: "t",
+                                   yes: .demo("x"), notNow: .post(path: "/api/oo/shops/r/strategy-manager/recommendations/k/dismiss", body: [:]))
+        // No Companion page loaded in tests, so the dismiss cannot reach the server.
+        await center.notNow(real)
+        XCTAssertNotNil(center.failures[real.id])
+        XCTAssertTrue(center.history.isEmpty, "a failed Not now is not recorded as answered")
+        center.reset()
+        XCTAssertTrue(center.feed.isEmpty)
+        XCTAssertTrue(center.history.isEmpty)
+        XCTAssertTrue(center.failures.isEmpty)
     }
 
     /// Renders the bubble and the Management chat offscreen for a visual check (no window opens).

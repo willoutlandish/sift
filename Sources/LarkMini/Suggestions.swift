@@ -6,6 +6,8 @@ struct OllieSuggestion: Equatable, Identifiable {
     enum Action: Equatable {
         /// A same-origin Companion POST the source's own card makes.
         case post(path: String, body: [String: String])
+        /// Apply the month's proposed strategy, re-reading it first so a stale draft is never sent.
+        case applyDraft(resource: String, applyText: String)
         /// Approve one item from Waiting on you.
         case approve(CompanionTodoItem)
         /// Local preview only: nothing is read or written.
@@ -52,6 +54,13 @@ enum OllieSuggestions {
         let check: Check?
     }
 
+    /// The current draft's apply text, or nil when there is no draft now (as the card's refetch reads it).
+    static func currentDraftText(_ body: String) -> String? {
+        guard let data = body.data(using: .utf8),
+              let state = try? JSONDecoder().decode(StrategyState.self, from: data) else { return nil }
+        return nonEmpty(state.draft?.apply_text)
+    }
+
     static func strategyPath(resource: String, _ tail: String = "") -> String {
         "/api/oo/shops/" + pathSegment(resource) + "/strategy-manager" + tail
     }
@@ -69,7 +78,7 @@ enum OllieSuggestions {
             out.append(OllieSuggestion(
                 id: "sm:\(resource):draft:\(period):\(apply)", agent: agent, shop: shop,
                 text: display, detail: "Want me to set it as this month's strategy?",
-                yesLabel: "Apply", yes: .post(path: strategyPath(resource: resource, "/statements"), body: ["text": apply]),
+                yesLabel: "Apply", yes: .applyDraft(resource: resource, applyText: apply),
                 notNow: .post(path: strategyPath(resource: resource, "/recommendations/" + pathSegment("statement_draft:" + period) + "/dismiss"), body: [:]),
                 openPath: "/companion/app", doneText: "Set as this month's strategy"))
         }
@@ -91,10 +100,14 @@ enum OllieSuggestions {
 
     /// Items an agent recommends approving and that you can approve in one tap. Sends to
     /// people outside are left to the panel, where the full message and recipient show.
+    /// Sources whose approve sends to someone outside (ControlRoomAnswerService::apply).
+    static let outsideSendSources: Set<String> = ["send_approval", "creator_dm_reply", "incentive"]
+
     static func approvals(_ snapshot: CompanionTodoSnapshot) -> [OllieSuggestion] {
         snapshot.orderedItems.compactMap { item in
             guard item.mine, item.recommendationAnswer == "approve", item.canApprove,
-                  !["send_approval", "creator_dm_reply"].contains(item.source) else { return nil }
+                  item.recipients.isEmpty, item.payloadPreview == nil,
+                  !outsideSendSources.contains(item.source) else { return nil }
             return OllieSuggestion(
                 id: "approval:\(item.id):\(item.decision?.version ?? "")", agent: item.label, shop: item.shopName,
                 text: item.title, detail: nonEmpty(item.recommendation) ?? item.reason,
@@ -125,7 +138,7 @@ enum OllieSuggestions {
     // MARK: Helpers
 
     static func pathSegment(_ raw: String) -> String {
-        let unreserved = CharacterSet(charactersIn: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~:")
+        let unreserved = CharacterSet(charactersIn: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~!*'()")
         return raw.addingPercentEncoding(withAllowedCharacters: unreserved) ?? raw
     }
 
@@ -189,7 +202,8 @@ final class OllieSuggestionCenter: ObservableObject {
 
     static let shared = OllieSuggestionCenter()
     static let strategyInterval: TimeInterval = 600
-    nonisolated static let maxStrategyShops = 25
+    /// Shops read per 10-minute round; a bigger roster is read in turn, never starved.
+    nonisolated static let maxStrategyShops = 10
     private static let handledKey = "ollieSuggestionsHandled"
     nonisolated static let offKey = "OllieSuggestionsOff"
 
@@ -199,6 +213,9 @@ final class OllieSuggestionCenter: ObservableObject {
     private var shown = Set<String>()
     private var strategyFetchedAt: Date?
     private var strategyBusy = false
+    private var strategyCursor = 0
+    /// Most recent last, so the 500 kept are the newest answers.
+    private var handledOrder: [String]
     /// The latest read from each source; the Management chat shows what is still open.
     private var latest: [(source: String, items: [OllieSuggestion])] = []
     @Published private(set) var feed: [OllieSuggestion] = []
@@ -210,11 +227,27 @@ final class OllieSuggestionCenter: ObservableObject {
     var pending: [OllieSuggestion] { queue.pending }
 
     init() {
-        queue = OllieSuggestionQueue(handled: Set(UserDefaults.standard.stringArray(forKey: Self.handledKey) ?? []))
+        handledOrder = UserDefaults.standard.stringArray(forKey: Self.handledKey) ?? []
+        queue = OllieSuggestionQueue(handled: Set(handledOrder))
+    }
+
+    /// A different Companion, or a signed-out session: nothing from before may be offered or answered.
+    func reset() {
+        latest = []
+        shown = []
+        history = []
+        failures = [:]
+        strategyFetchedAt = nil
+        strategyCursor = 0
+        queue = OllieSuggestionQueue(handled: Set(handledOrder))
+        rebuildFeed()
+        if store?.bubble?.suggestion != nil { store?.dismissBubble() }
     }
 
     func monitorDidPoll(snapshot: CompanionTodoSnapshot, shops: [CompanionShopPace]) async {
         offer(OllieSuggestions.approvals(snapshot), source: "approval:")
+        // Ideas already in hand go out now; the shop reads below can take a while.
+        showNextIfIdle()
         if !strategyBusy, strategyFetchedAt.map({ Date().timeIntervalSince($0) >= Self.strategyInterval }) ?? true {
             await refreshStrategy(shops)
         }
@@ -226,13 +259,28 @@ final class OllieSuggestionCenter: ObservableObject {
     nonisolated static func strategyShops(_ shops: [CompanionShopPace]) -> [CompanionShopPace] {
         let flagged = shops.filter { $0.agents.contains { $0.role == OllieSuggestions.strategyRole && $0.on } }
         let pool = flagged.isEmpty && shops.count <= 12 ? shops : flagged
-        return Array(pool.sorted { $0.name < $1.name }.prefix(maxStrategyShops))
+        return pool.sorted { $0.name < $1.name }
+    }
+
+    /// This round's slice of the pool, starting at `cursor` and wrapping.
+    nonisolated static func strategyBatch(_ pool: [CompanionShopPace], cursor: Int) -> [CompanionShopPace] {
+        guard !pool.isEmpty else { return [] }
+        let count = min(maxStrategyShops, pool.count)
+        return (0..<count).map { pool[(cursor + $0) % pool.count] }
     }
 
     func refreshStrategy(_ shops: [CompanionShopPace]) async {
         strategyBusy = true
         defer { strategyBusy = false; strategyFetchedAt = Date() }
-        for shop in Self.strategyShops(shops) {
+        let pool = Self.strategyShops(shops)
+        // A shop whose Strategy Manager went off takes its old ideas with it.
+        let live = Set(pool.map { "sm:\($0.resource):" })
+        let before = latest.count
+        latest.removeAll { $0.source.hasPrefix("sm:") && !live.contains($0.source) }
+        if latest.count != before { rebuildFeed() }
+        let batch = Self.strategyBatch(pool, cursor: strategyCursor)
+        strategyCursor = pool.isEmpty ? 0 : (strategyCursor + batch.count) % pool.count
+        for shop in batch {
             guard let reply = await CompanionApprovalsMonitor.shared.fetch(path: OllieSuggestions.strategyPath(resource: shop.resource)),
                   reply.status == 200 else { continue }
             offer(OllieSuggestions.strategyManager(reply.body, resource: shop.resource, shop: shop.name),
@@ -276,10 +324,20 @@ final class OllieSuggestionCenter: ObservableObject {
         queue.requeue(suggestion)
     }
 
+    /// Remembered only once the source agrees, so a failed dismiss never hides an open idea.
     func notNow(_ suggestion: OllieSuggestion) async {
+        if let action = suggestion.notNow {
+            working.insert(suggestion.id)
+            let result = await perform(action)
+            working.remove(suggestion.id)
+            guard result.ok else {
+                failures[suggestion.id] = result.message ?? "Couldn't set that aside."
+                return
+            }
+        }
+        failures[suggestion.id] = nil
         markHandled(suggestion.id)
         record(suggestion, yes: false, outcome: "Not now")
-        if let action = suggestion.notNow { _ = await perform(action) }
     }
 
     func yes(_ suggestion: OllieSuggestion) async -> (ok: Bool, message: String) {
@@ -329,9 +387,12 @@ final class OllieSuggestionCenter: ObservableObject {
     private func markHandled(_ id: String) {
         queue.markHandled(id)
         rebuildFeed()
-        // Previews are forgotten on quit; real answers are remembered.
-        let real = queue.handled.filter { !$0.hasPrefix("demo:") }
-        UserDefaults.standard.set(Array(real.sorted().suffix(500)), forKey: Self.handledKey)
+        // Previews are forgotten on quit; the newest 500 real answers are remembered.
+        guard !id.hasPrefix("demo:") else { return }
+        handledOrder.removeAll { $0 == id }
+        handledOrder.append(id)
+        if handledOrder.count > 500 { handledOrder.removeFirst(handledOrder.count - 500) }
+        UserDefaults.standard.set(handledOrder, forKey: Self.handledKey)
     }
 
     private func perform(_ action: OllieSuggestion.Action) async -> (ok: Bool, message: String?) {
@@ -339,6 +400,17 @@ final class OllieSuggestionCenter: ObservableObject {
         case .demo:
             try? await Task.sleep(nanoseconds: 700_000_000)
             return (true, nil)
+        case .applyDraft(let resource, let applyText):
+            // As the in-app card does: re-read the draft and send only if it is still the one shown.
+            let monitor = CompanionApprovalsMonitor.shared
+            if monitor.isReadOnly { return (false, CompanionWriteGuard.refusal) }
+            guard let reply = await monitor.fetch(path: OllieSuggestions.strategyPath(resource: resource)),
+                  reply.status == 200 else { return (false, "Couldn't reach Companion.") }
+            guard OllieSuggestions.currentDraftText(reply.body) == applyText else {
+                forceRefresh()
+                return (false, "That proposal changed or was already set. Open it to see the latest.")
+            }
+            return await perform(.post(path: OllieSuggestions.strategyPath(resource: resource, "/statements"), body: ["text": applyText]))
         case .approve(let item):
             let outcome = await CompanionApprovalsActions.shared.submit(item: item, answer: "approve")
             return (outcome.remove, outcome.message)

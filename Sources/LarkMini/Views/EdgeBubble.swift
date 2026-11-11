@@ -240,7 +240,9 @@ struct SuggestionBubbleView: View {
                         Image(systemName: "xmark").font(.system(size: 10, weight: .semibold))
                             .foregroundStyle(SiftStyle.muted).frame(width: 20, height: 20)
                     }
-                    .buttonStyle(.plain).help("Not now").accessibilityLabel("Not now")
+                    .buttonStyle(.plain)
+                    .help(store.suggestionStatus == .idle ? "Not now" : "Close")
+                    .accessibilityLabel(store.suggestionStatus == .idle ? "Not now" : "Close")
                 }
                 Text(suggestion.text).font(.system(size: 13, weight: .medium))
                     .lineLimit(3).fixedSize(horizontal: false, vertical: true)

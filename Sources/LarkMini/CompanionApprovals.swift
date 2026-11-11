@@ -508,7 +508,8 @@ final class CompanionApprovalsMonitor: NSObject, WKNavigationDelegate, Observabl
     private var failures = 0
     private var polling = false
     private var paceRefreshing = false
-    private var pageReady: CheckedContinuation<Void, Never>?
+    /// Everyone waiting for the base page; each is resumed once, by load or by the 5 s timeout.
+    private var pageWaiters: [CheckedContinuation<Void, Never>] = []
     private let seenStore = CompanionApprovalsSeenStore()
     private static let scriptWorld = WKContentWorld.world(name: "ollie")
 
@@ -549,6 +550,8 @@ final class CompanionApprovalsMonitor: NSObject, WKNavigationDelegate, Observabl
         paceState = .unknown
         latestApprovals = []
         recomputeBadge()
+        resumePageWaiters()
+        OllieSuggestionCenter.shared.reset()
     }
 
     func refresh() {
@@ -582,14 +585,20 @@ final class CompanionApprovalsMonitor: NSObject, WKNavigationDelegate, Observabl
     private func ensureBasePage() async {
         guard let webView, let baseURL, !isOnBase(webView.url) else { return }
         await withCheckedContinuation { continuation in
-            pageReady = continuation
+            let first = pageWaiters.isEmpty
+            pageWaiters.append(continuation)
+            guard first else { return }
             webView.load(URLRequest(url: baseURL))
             DispatchQueue.main.asyncAfter(deadline: .now() + 5) { [weak self] in
-                guard let self, let ready = self.pageReady else { return }
-                self.pageReady = nil
-                ready.resume()
+                self?.resumePageWaiters()
             }
         }
+    }
+
+    private func resumePageWaiters() {
+        let waiters = pageWaiters
+        pageWaiters = []
+        waiters.forEach { $0.resume() }
     }
 
     func webView(_ webView: WKWebView,
@@ -607,10 +616,7 @@ final class CompanionApprovalsMonitor: NSObject, WKNavigationDelegate, Observabl
 
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
         failures = 0
-        if let ready = pageReady {
-            pageReady = nil
-            ready.resume()
-        }
+        resumePageWaiters()
     }
 
     func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
@@ -746,6 +752,7 @@ final class CompanionApprovalsMonitor: NSObject, WKNavigationDelegate, Observabl
             state = .signedOut
             latestApprovals = []
             recomputeBadge()
+            OllieSuggestionCenter.shared.reset()
             failures += 1
             schedule(after: backoff)
             return

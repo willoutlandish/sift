@@ -35,7 +35,7 @@ final class Store: ObservableObject {
     @Published var openChat: Chat?
     @Published var isExpanded = true {
         didSet {
-            if isExpanded { dismissBubble() } else { controlTail = Self.controlPage; scheduleNextSuggestion() }
+            if isExpanded { setAsideSuggestion(); dismissBubble() } else { controlTail = Self.controlPage; scheduleNextSuggestion() }
             sendWatchGap()
         }
     }
@@ -50,6 +50,7 @@ final class Store: ObservableObject {
     private var bubbleExpiry: Task<Void, Never>?
     private var nextSuggestion: Task<Void, Never>?
     private var bubbleHeld = false
+    private var holdCap: Task<Void, Never>?
     private var bubbledNeeds = Set<String>()
     @Published var showingShortcuts = false
     @Published var deviceCode: DeviceCode?
@@ -1208,6 +1209,7 @@ final class Store: ObservableObject {
     func larkArrival(chat: Chat, text: String) {
         guard !isExpanded else { return }
         setAsideSuggestion()
+        bubbleHeld = false
         bubble = EdgeBubble.arrival(bubble, chatId: chat.id, name: chat.displayName, text: text)
         expireBubble(after: 6)
     }
@@ -1216,17 +1218,29 @@ final class Store: ObservableObject {
     func needArrival(id: String, text: String) {
         guard !isExpanded, bubbledNeeds.insert(id).inserted else { return }
         setAsideSuggestion()
+        bubbleHeld = false
         bubble = EdgeBubble(target: .control, title: "Control needs you", text: text)
         expireBubble(after: 12)
     }
 
+    /// Hover keeps a bubble up, but never past two minutes, so a resting pointer can't block the line.
     func holdBubble(_ hovering: Bool) {
         bubbleHeld = hovering
-        if !hovering, bubble != nil { expireBubble(after: 3) }
+        holdCap?.cancel()
+        if hovering {
+            holdCap = Task { [weak self] in
+                try? await Task.sleep(nanoseconds: 120_000_000_000)
+                guard !Task.isCancelled, let self, self.bubbleHeld else { return }
+                self.bubbleHeld = false
+                self.setAsideSuggestion()
+                self.dismissBubble()
+            }
+        } else if bubble != nil { expireBubble(after: 3) }
     }
 
     func dismissBubble() {
         bubbleExpiry?.cancel()
+        holdCap?.cancel()
         bubbleHeld = false
         if bubble != nil { bubble = nil }
         scheduleNextSuggestion()
@@ -1245,6 +1259,7 @@ final class Store: ObservableObject {
         guard !isExpanded, force || bubble == nil else { OllieSuggestionCenter.shared.requeue(suggestion); return }
         nextSuggestion?.cancel()
         suggestionStatus = .idle
+        bubbleHeld = false
         bubble = EdgeBubble(target: .suggestion, title: suggestion.byline, text: suggestion.text, suggestion: suggestion)
         expireBubble(after: 30)
     }
@@ -1252,6 +1267,8 @@ final class Store: ObservableObject {
     func answerSuggestion(yes: Bool) {
         guard let suggestion = bubble?.suggestion, suggestionStatus != .working else { return }
         bubbleExpiry?.cancel()
+        // After a Yes (done or failed) the close button only closes; it never undoes the answer.
+        guard suggestionStatus == .idle else { dismissBubble(); return }
         guard yes else {
             Task { await OllieSuggestionCenter.shared.notNow(suggestion) }
             dismissBubble()
