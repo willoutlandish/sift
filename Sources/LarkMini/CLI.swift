@@ -735,7 +735,7 @@ enum CLI {
                   status | pace | open [--path /same-origin/path]
                   drag-map                         titlebar geometry and hit map
       suggest   Agent proposals said from Ollie's head ("Yes, do it" / "Not now")
-                  demo [strategy|creator|handoff]  preview one; nothing is read or written
+                  demo [strategy|samples|creator|handoff]  preview one; nothing is read or written
                   refresh                          read the agents' proposals now
                   on | off | status
       settings  set --show-in menubar|edge|both

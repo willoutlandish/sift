@@ -96,13 +96,14 @@ enum OllieSuggestions {
             guard let key = nonEmpty(rec.key), let title = nonEmpty(rec.title), rec.dismissed != true else { continue }
             let to = nonEmpty(rec.to_name) ?? "the team"
             if let handed = rec.handed {
-                // The agent handed it on by itself (a person's Apply is recorded as staff:…): say so, with Stop.
+                // Hand-offs wait for a person's Apply (recorded as staff:…). One the agent made by itself
+                // breaks that rule (Will, 11 Nov), so say it plainly and offer Stop.
                 guard handed.via == "handoff", ["open", "claimed"].contains(handed.status ?? "open"),
                       let handoff = nonEmpty(handed.handoff_id), !handoff.hasPrefix("staff:") else { continue }
                 out.append(OllieSuggestion(
                     id: "sm:\(resource):handoff:\(key):\(handoff)", agent: agent, shop: shop,
-                    text: "I've handed this to \(to): " + lowerFirst(title) + ".", detail: nonEmpty(rec.reason),
-                    yesLabel: "Keep going", yes: .acknowledge,
+                    text: "This went to \(to) without anyone's OK: " + lowerFirst(title) + ".", detail: nonEmpty(rec.reason),
+                    yesLabel: "Let it go ahead", yes: .acknowledge,
                     notNow: .post(path: strategyPath(resource: resource, "/handoffs/stop"), body: ["key": key]),
                     openPath: "/companion/app", doneText: "\(to) carries on",
                     notNowLabel: "Stop", notNowDoneText: "Stopped. It's withdrawn on the agent's next run.",
@@ -148,12 +149,18 @@ enum OllieSuggestions {
                 text: "12 creators asked for samples overnight and all fit the brief. Want me to approve them?",
                 detail: "Each one is above 5k followers with a beauty audience; 3 have posted for you before.",
                 yes: .demo("creator"), doneText: "Approved 12 samples (preview, nothing sent)")
+        case "samples":
+            return OllieSuggestion(
+                id: "demo:samples:\(UUID().uuidString)", agent: "Strategy Manager", shop: "YUNJAC",
+                text: "I think we should send 20 more samples this week. Want me to hand it to Creator Manager?",
+                detail: "Samples are 8 of 28 this week; at this rate November ends 40% under the video target.",
+                yes: .demo("samples"), doneText: "Handed to Creator Manager (preview, nothing sent)")
         case "handoff", "stop":
             return OllieSuggestion(
                 id: "demo:handoff:\(UUID().uuidString)", agent: "Strategy Manager", shop: "YUNJAC",
-                text: "I've handed this to Creator Manager: send 20 more samples this week.",
+                text: "This went to Creator Manager without anyone's OK: send 20 more samples this week.",
                 detail: "Samples are 8 of 28 this week; at this rate November ends 40% under the video target.",
-                yesLabel: "Keep going", yes: .demo("handoff"), notNow: .demo("stop"),
+                yesLabel: "Let it go ahead", yes: .demo("handoff"), notNow: .demo("stop"),
                 doneText: "Creator Manager carries on (preview)", notNowLabel: "Stop",
                 notNowDoneText: "Stopped (preview, nothing sent)", isNotice: true)
         default:
@@ -346,7 +353,7 @@ final class OllieSuggestionCenter: ObservableObject {
 
     /// The preview build (`--demo`) starts with one of each in the Management chat.
     func seedDemo() {
-        setLatest([OllieSuggestions.demo("strategy"), OllieSuggestions.demo("handoff"), OllieSuggestions.demo("creator")], source: "demo:")
+        setLatest([OllieSuggestions.demo("strategy"), OllieSuggestions.demo("samples"), OllieSuggestions.demo("creator")], source: "demo:")
     }
 
     /// Yes or Not now from the Management chat; a bubble about the same thing goes away.

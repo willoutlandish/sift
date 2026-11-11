@@ -91,8 +91,9 @@ struct SuggestionMessage: View {
         HStack(alignment: .top, spacing: 10) {
             FaceIcon(size: 28)
             VStack(alignment: .leading, spacing: 6) {
-                Text((suggestion.isNotice ? "Done for you · " : "") + suggestion.byline)
-                    .font(.system(size: 11, weight: .semibold)).foregroundStyle(SiftStyle.green)
+                Text((suggestion.isNotice ? "Needs a look · " : "") + suggestion.byline)
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(suggestion.isNotice ? Color.orange : SiftStyle.green)
                 Text(suggestion.text).font(.system(size: 13, weight: .medium))
                     .fixedSize(horizontal: false, vertical: true)
                 if let detail = suggestion.detail {

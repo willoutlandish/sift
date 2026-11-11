@@ -52,10 +52,10 @@ final class SuggestionTests: XCTestCase {
         """#
         let list = OllieSuggestions.strategyManager(body, resource: "r1", shop: "YUNJAC")
         XCTAssertEqual(list.map(\.id), ["sm:r1:handoff:samples:2026-11:h-42"],
-                       "only the agent's own open hand-off; a person's Apply, finished, stopping and asks are not news")
+                       "only a hand-off nobody approved; a person's Apply, finished, stopping and asks are not alarms")
         let notice = list[0]
         XCTAssertTrue(notice.isNotice)
-        XCTAssertEqual(notice.text, "I've handed this to Creator Manager: send 20 more samples this week.")
+        XCTAssertEqual(notice.text, "This went to Creator Manager without anyone's OK: send 20 more samples this week.")
         XCTAssertEqual(notice.yes, .acknowledge)
         XCTAssertEqual(notice.notNowLabel, "Stop")
         XCTAssertEqual(notice.notNow, .post(path: "/api/oo/shops/r1/strategy-manager/handoffs/stop", body: ["key": "samples:2026-11"]))
@@ -153,13 +153,13 @@ final class SuggestionFeedTests: XCTestCase {
         let center = OllieSuggestionCenter()
         center.seedDemo()
         XCTAssertEqual(center.feed.map(\.agent), ["Strategy Manager", "Strategy Manager", "Creator Manager"])
-        XCTAssertEqual(center.feed.map(\.isNotice), [false, true, false])
+        XCTAssertFalse(center.feed.contains(where: \.isNotice), "hand-offs wait for a yes; the preview has none done unasked")
         let first = center.feed[0]
         await center.notNow(first)
         XCTAssertEqual(center.feed.map(\.agent), ["Strategy Manager", "Creator Manager"])
         XCTAssertEqual(center.history.map(\.outcome), ["Not now"])
-        await center.notNow(center.feed[0])
-        XCTAssertEqual(center.history.last?.outcome, "Stopped (preview, nothing sent)", "a Stop says what it did")
+        _ = await center.yes(center.feed[0])
+        XCTAssertEqual(center.history.last?.outcome, "Handed to Creator Manager (preview, nothing sent)", "a hand-off happens on your yes")
         let result = await center.yes(center.feed[0])
         XCTAssertTrue(result.ok)
         XCTAssertTrue(center.feed.isEmpty)
