@@ -80,7 +80,8 @@ enum OllieSuggestions {
     static func strategyManager(_ body: String, resource: String, shop: String) -> [OllieSuggestion] {
         guard let data = body.data(using: .utf8),
               let state = try? JSONDecoder().decode(StrategyState.self, from: data),
-              state.agent != nil else { return [] }
+              // The free daily check's own ideas count even before the paid agent is set up.
+              state.agent != nil || state.draft != nil || state.check != nil else { return [] }
         let agent = "Strategy Manager"
         var out: [OllieSuggestion] = []
         if let draft = state.draft, let apply = nonEmpty(draft.apply_text), let display = nonEmpty(draft.display),
@@ -249,6 +250,11 @@ final class OllieSuggestionCenter: ObservableObject {
     nonisolated static let maxStrategyShops = 10
     private static let handledKey = "ollieSuggestionsHandled"
     nonisolated static let offKey = "OllieSuggestionsOff"
+    /// Shops read every round whatever the roster says (`ollie suggest watch <resource>`).
+    nonisolated static let watchKey = "OllieSuggestionsWatch"
+    nonisolated static var watched: [String] { UserDefaults.standard.stringArray(forKey: watchKey) ?? [] }
+    /// What the last read of each shop found, for `ollie suggest list`.
+    private var strategyReads: [String: [String: Any]] = [:]
 
     weak var store: Store?
     private var queue: OllieSuggestionQueue
@@ -303,8 +309,10 @@ final class OllieSuggestionCenter: ObservableObject {
 
     /// Shops with a Strategy Manager on; a small portfolio with no roster flags is read whole,
     /// since the endpoint itself says when the role is off.
-    nonisolated static func strategyShops(_ shops: [CompanionShopPace]) -> [CompanionShopPace] {
-        let flagged = shops.filter { $0.agents.contains { $0.role == OllieSuggestions.strategyRole && $0.on } }
+    nonisolated static func strategyShops(_ shops: [CompanionShopPace], watched: [String] = []) -> [CompanionShopPace] {
+        let flagged = shops.filter { shop in
+            watched.contains(shop.resource) || shop.agents.contains { $0.role == OllieSuggestions.strategyRole && $0.on }
+        }
         let pool = flagged.isEmpty && shops.count <= 12 ? shops : flagged
         return pool.sorted { $0.name < $1.name }
     }
@@ -319,8 +327,8 @@ final class OllieSuggestionCenter: ObservableObject {
     func refreshStrategy(_ shops: [CompanionShopPace]) async {
         let session = generation
         strategyBusy = true
-        defer { if session == generation { strategyBusy = false; strategyFetchedAt = Date() } }
-        let pool = Self.strategyShops(shops)
+        defer { if session == generation { strategyBusy = false; strategyFetchedAt = Date(); writeSnapshot() } }
+        let pool = Self.strategyShops(shops, watched: Self.watched)
         // A shop whose Strategy Manager went off takes its old ideas with it.
         let live = Set(pool.map { "sm:\($0.resource):" })
         for gone in latest.map(\.source) where gone.hasPrefix("sm:") && !live.contains(gone) {
@@ -334,9 +342,11 @@ final class OllieSuggestionCenter: ObservableObject {
         for shop in batch {
             guard let reply = await CompanionApprovalsMonitor.shared.fetch(path: OllieSuggestions.strategyPath(resource: shop.resource)),
                   session == generation else { return }
+            let found = reply.status == 200 ? OllieSuggestions.strategyManager(reply.body, resource: shop.resource, shop: shop.name) : []
+            strategyReads[shop.resource] = ["shop": shop.name, "status": reply.status, "ideas": found.count,
+                                            "at": ISO8601DateFormatter().string(from: Date())]
             guard reply.status == 200 else { continue }
-            offer(OllieSuggestions.strategyManager(reply.body, resource: shop.resource, shop: shop.name),
-                  source: "sm:\(shop.resource):")
+            offer(found, source: "sm:\(shop.resource):")
         }
     }
 
@@ -434,6 +444,25 @@ final class OllieSuggestionCenter: ObservableObject {
     private func rebuildFeed() {
         let open = latest.flatMap(\.items).filter { !queue.handled.contains($0.id) }
         if open != feed { feed = open }
+        writeSnapshot()
+    }
+
+    /// A small 0600 file `ollie suggest list` reads: what is on offer and what each shop read found.
+    nonisolated static var snapshotURL: URL { AppPaths.supportDirectory.appendingPathComponent("suggestions.json") }
+
+    func writeSnapshot() {
+        let object: [String: Any] = [
+            "enabled": enabled,
+            "watched": Self.watched,
+            "feed": feed.map { ["id": $0.id, "agent": $0.agent, "shop": $0.shop, "text": $0.text, "notice": $0.isNotice] },
+            "waiting_to_pop": queue.pending.count,
+            "answered_this_session": history.map { ["text": $0.suggestion.text, "outcome": $0.outcome] },
+            "strategy_reads": strategyReads,
+            "at": ISO8601DateFormatter().string(from: Date()),
+        ]
+        guard let data = try? JSONSerialization.data(withJSONObject: object, options: [.prettyPrinted, .sortedKeys]) else { return }
+        try? data.write(to: Self.snapshotURL, options: [.atomic])
+        try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: Self.snapshotURL.path)
     }
 
     private func record(_ suggestion: OllieSuggestion, yes: Bool, outcome: String) {

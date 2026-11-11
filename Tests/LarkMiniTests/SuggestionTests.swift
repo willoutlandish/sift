@@ -62,8 +62,11 @@ final class SuggestionTests: XCTestCase {
     }
 
     func testNoStrategyManagerMeansNoSuggestions() {
-        XCTAssertTrue(OllieSuggestions.strategyManager(#"{"agent":null,"period":"2026-11-01","draft":{"display":"x","apply_text":"y"}}"#,
+        XCTAssertTrue(OllieSuggestions.strategyManager(#"{"agent":null,"period":"2026-11-01","draft":null,"check":null}"#,
                                                         resource: "r", shop: "S").isEmpty)
+        XCTAssertEqual(OllieSuggestions.strategyManager(#"{"agent":null,"period":"2026-11-01","draft":{"display":"x","apply_text":"y"}}"#,
+                                                         resource: "r", shop: "S").count, 1,
+                       "the free daily check's ideas count before the paid agent is set up")
         XCTAssertTrue(OllieSuggestions.strategyManager("<html>", resource: "r", shop: "S").isEmpty)
     }
 
@@ -123,6 +126,7 @@ final class SuggestionTests: XCTestCase {
                        "a small portfolio with no flags is read whole")
         let many = (0..<20).map { shop("S\($0)", sm: false) }
         XCTAssertTrue(OllieSuggestionCenter.strategyShops(many).isEmpty, "a big portfolio only reads flagged shops")
+        XCTAssertEqual(OllieSuggestionCenter.strategyShops(many, watched: ["S7"]).map(\.name), ["S7"], "a watched shop is always read")
         let flagged = (10..<35).map { shop("S\($0)", sm: true) }
         let pool = OllieSuggestionCenter.strategyShops(flagged)
         XCTAssertEqual(pool.count, 25, "every flagged shop is in the pool")

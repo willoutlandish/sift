@@ -378,6 +378,21 @@ enum CLI {
         case "refresh":
             postQuery(.suggestionRequest, userInfo: ["action": "refresh"])
             return ok(["ok": true])
+        case "list":
+            guard let data = try? Data(contentsOf: OllieSuggestionCenter.snapshotURL),
+                  var object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+                return fail("Nothing yet. Is Ollie open and signed in to Companion?")
+            }
+            object["ok"] = true
+            return ok(object)
+        case "watch", "unwatch":
+            guard let resource = args.dropFirst().first, !resource.isEmpty else { return fail("suggest \(sub) needs a shop resource id") }
+            var list = UserDefaults.standard.stringArray(forKey: OllieSuggestionCenter.watchKey) ?? []
+            list.removeAll { $0 == resource }
+            if sub == "watch" { list.append(resource) }
+            UserDefaults.standard.set(list, forKey: OllieSuggestionCenter.watchKey)
+            postQuery(.suggestionRequest, userInfo: ["action": "refresh"])
+            return ok(["ok": true, "watched": list])
         case "on", "off":
             UserDefaults.standard.set(sub == "off", forKey: off)
             postQuery(.suggestionRequest, userInfo: ["action": "settings"])
@@ -737,6 +752,8 @@ enum CLI {
       suggest   Agent proposals said from Ollie's head ("Yes, do it" / "Not now")
                   demo [strategy|samples|creator|handoff]  preview one; nothing is read or written
                   refresh                          read the agents' proposals now
+                  list                             what is on offer and what each shop read found
+                  watch | unwatch <resource>       always read this shop's Strategy Manager
                   on | off | status
       settings  set --show-in menubar|edge|both
       doctor    Check credentials, token and chat access
