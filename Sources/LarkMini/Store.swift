@@ -9,6 +9,7 @@ final class Store: ObservableObject {
     enum Pane: Equatable {
         case lark
         case ollie
+        case management
         case control
         case settings
         case chat(String)
@@ -17,6 +18,7 @@ final class Store: ObservableObject {
     enum RailItem: Equatable {
         case lark
         case ollie
+        case management
         case control
         case settings
         case chat(String)
@@ -791,6 +793,18 @@ final class Store: ObservableObject {
         pane = .lark
         showAllChats = false
         if searchOpen { closeSearch() }
+    }
+
+    /// The pinned Management chat under Ollie: what the agents want to do, with a yes.
+    func showManagement() {
+        if searchOpen { closeSearch() }
+        showingSettings = false
+        controlOpen = false
+        openChat = nil
+        pane = .management
+        guard !isDemo else { return }
+        startCompanionMonitor()
+        CompanionApprovalsMonitor.shared.refresh()
     }
 
     func showOllie() {
@@ -1606,6 +1620,7 @@ extension Store.Pane {
         switch self {
         case .lark: return .lark
         case .ollie: return .ollie
+        case .management: return .management
         case .control: return .control
         case .settings: return .settings
         case .chat(let id): return .chat(id)

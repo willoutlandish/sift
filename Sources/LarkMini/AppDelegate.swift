@@ -119,7 +119,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             MainActor.assumeIsolated { self?.applyShowInMode() }
         }
         applyShowInMode()
-        store.isExpanded = demoMode && !CommandLine.arguments.contains("--demo-needs-you")
+        let demoSuggestion = CommandLine.arguments.firstIndex(of: "--demo-suggestion").map { index in
+            CommandLine.arguments.count > index + 1 && !CommandLine.arguments[index + 1].hasPrefix("--")
+                ? CommandLine.arguments[index + 1] : "strategy"
+        }
+        store.isExpanded = demoMode && !CommandLine.arguments.contains("--demo-needs-you") && demoSuggestion == nil
+        if demoMode { OllieSuggestionCenter.shared.seedDemo() }
+        if let demoSuggestion {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 2) { OllieSuggestionCenter.shared.showDemo(demoSuggestion) }
+        }
         if UserDefaults.standard.bool(forKey: "OllieUpdatedRelaunch") {
             store.isExpanded = false
             UserDefaults.standard.removeObject(forKey: "OllieUpdatedRelaunch")

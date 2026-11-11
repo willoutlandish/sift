@@ -80,7 +80,6 @@ enum OllieSuggestions {
             out.append(OllieSuggestion(
                 id: "sm:\(resource):rec:\(key)", agent: agent, shop: shop,
                 text: "I think we should " + lowerFirst(title) + ".", detail: nonEmpty(rec.reason),
-                yesLabel: "Hand to \(to)",
                 yes: .post(path: strategyPath(resource: resource, "/recommendations/" + pathSegment(key) + "/apply"), body: [:]),
                 notNow: .post(path: strategyPath(resource: resource, "/recommendations/" + pathSegment(key) + "/dismiss"), body: [:]),
                 openPath: "/companion/app", doneText: "Handed to \(to)"))
@@ -118,7 +117,7 @@ enum OllieSuggestions {
                 id: "demo:strategy:\(UUID().uuidString)", agent: "Strategy Manager", shop: "YUNJAC",
                 text: "I think we should lower the November GMV target to $25,000.",
                 detail: "$6,273 in 7 days is 61% of pace; at this rate the month ends near $26,900 against $40,000.",
-                yesLabel: "Hand to account manager", yes: .demo("strategy"),
+                yes: .demo("strategy"),
                 doneText: "Handed to account manager (preview, nothing saved)")
         }
     }
@@ -178,7 +177,16 @@ struct OllieSuggestionQueue {
 /// Gathers suggestions after each Companion poll and offers them, one at a time, from the head.
 /// Every write goes through the same Companion route the in-app card uses, as the signed-in person.
 @MainActor
-final class OllieSuggestionCenter {
+final class OllieSuggestionCenter: ObservableObject {
+    /// One answered suggestion, kept for this session so the Management chat reads as a conversation.
+    struct Answered: Identifiable, Equatable {
+        let suggestion: OllieSuggestion
+        let yes: Bool
+        let outcome: String
+        let at: Date
+        var id: String { suggestion.id }
+    }
+
     static let shared = OllieSuggestionCenter()
     static let strategyInterval: TimeInterval = 600
     nonisolated static let maxStrategyShops = 25
@@ -191,6 +199,12 @@ final class OllieSuggestionCenter {
     private var shown = Set<String>()
     private var strategyFetchedAt: Date?
     private var strategyBusy = false
+    /// The latest read from each source; the Management chat shows what is still open.
+    private var latest: [(source: String, items: [OllieSuggestion])] = []
+    @Published private(set) var feed: [OllieSuggestion] = []
+    @Published private(set) var history: [Answered] = []
+    @Published private(set) var working: Set<String> = []
+    @Published private(set) var failures: [String: String] = [:]
 
     var enabled: Bool { !UserDefaults.standard.bool(forKey: Self.offKey) }
     var pending: [OllieSuggestion] { queue.pending }
@@ -232,7 +246,23 @@ final class OllieSuggestionCenter {
     }
 
     func showDemo(_ kind: String) {
-        store?.offerSuggestion(OllieSuggestions.demo(kind), force: true)
+        let demo = OllieSuggestions.demo(kind)
+        setLatest([demo] + (latest.first { $0.source == "demo:" }?.items ?? []), source: "demo:")
+        store?.offerSuggestion(demo, force: true)
+    }
+
+    /// The preview build (`--demo`) starts with one of each in the Management chat.
+    func seedDemo() {
+        setLatest([OllieSuggestions.demo("strategy"), OllieSuggestions.demo("creator")], source: "demo:")
+    }
+
+    /// Yes or Not now from the Management chat; a bubble about the same thing goes away.
+    func answerFromFeed(_ suggestion: OllieSuggestion, yes: Bool) {
+        guard !working.contains(suggestion.id) else { return }
+        if store?.bubble?.suggestion?.id == suggestion.id { store?.dismissBubble() }
+        Task {
+            if yes { _ = await self.yes(suggestion) } else { await notNow(suggestion) }
+        }
     }
 
     func showNextIfIdle() {
@@ -242,20 +272,28 @@ final class OllieSuggestionCenter {
     }
 
     func requeue(_ suggestion: OllieSuggestion) {
-        guard !suggestion.id.hasPrefix("demo:") else { return }
         shown.remove(suggestion.id)
         queue.requeue(suggestion)
     }
 
     func notNow(_ suggestion: OllieSuggestion) async {
         markHandled(suggestion.id)
+        record(suggestion, yes: false, outcome: "Not now")
         if let action = suggestion.notNow { _ = await perform(action) }
     }
 
     func yes(_ suggestion: OllieSuggestion) async -> (ok: Bool, message: String) {
+        working.insert(suggestion.id)
+        failures[suggestion.id] = nil
         let result = await perform(suggestion.yes)
-        guard result.ok else { return (false, result.message ?? "Couldn't do that. Open it to try there.") }
+        working.remove(suggestion.id)
+        guard result.ok else {
+            let message = result.message ?? "Couldn't do that. Open it to try there."
+            failures[suggestion.id] = message
+            return (false, message)
+        }
         markHandled(suggestion.id)
+        record(suggestion, yes: true, outcome: suggestion.doneText)
         if case .demo = suggestion.yes {} else { CompanionApprovalsMonitor.shared.refresh() }
         return (true, suggestion.doneText)
     }
@@ -267,13 +305,33 @@ final class OllieSuggestionCenter {
     }
 
     private func offer(_ list: [OllieSuggestion], source: String) {
+        setLatest(list, source: source)
         queue.offer(list.filter { !shown.contains($0.id) }, source: source)
     }
 
+    private func setLatest(_ list: [OllieSuggestion], source: String) {
+        if let index = latest.firstIndex(where: { $0.source == source }) { latest[index].items = list }
+        else { latest.append((source, list)) }
+        rebuildFeed()
+    }
+
+    private func rebuildFeed() {
+        let open = latest.flatMap(\.items).filter { !queue.handled.contains($0.id) }
+        if open != feed { feed = open }
+    }
+
+    private func record(_ suggestion: OllieSuggestion, yes: Bool, outcome: String) {
+        history.removeAll { $0.id == suggestion.id }
+        history.append(Answered(suggestion: suggestion, yes: yes, outcome: outcome, at: Date()))
+        if history.count > 30 { history.removeFirst(history.count - 30) }
+    }
+
     private func markHandled(_ id: String) {
-        guard !id.hasPrefix("demo:") else { return }
         queue.markHandled(id)
-        UserDefaults.standard.set(Array(queue.handled.sorted().suffix(500)), forKey: Self.handledKey)
+        rebuildFeed()
+        // Previews are forgotten on quit; real answers are remembered.
+        let real = queue.handled.filter { !$0.hasPrefix("demo:") }
+        UserDefaults.standard.set(Array(real.sorted().suffix(500)), forKey: Self.handledKey)
     }
 
     private func perform(_ action: OllieSuggestion.Action) async -> (ok: Bool, message: String?) {

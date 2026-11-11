@@ -22,6 +22,8 @@ struct ShellView: View {
             ControlChatView()
         case .ollie:
             OllieRootView()
+        case .management:
+            ManagementChatView()
         case .chat:
             if let chat = store.openChat {
                 ConversationView(chat: chat)

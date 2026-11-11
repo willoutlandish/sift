@@ -25,6 +25,8 @@ struct RailView: View {
             .accessibilityLabel("Open Ollie")
             .padding(.top, 10)
 
+            ManagementRailItem()
+
             Button { store.showInbox() } label: {
                 VStack(spacing: 4) {
                     LarkIcon(size: 32)

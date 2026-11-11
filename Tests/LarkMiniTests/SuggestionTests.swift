@@ -1,4 +1,6 @@
 import XCTest
+import SwiftUI
+import AppKit
 @testable import LarkMini
 
 final class SuggestionTests: XCTestCase {
@@ -26,7 +28,7 @@ final class SuggestionTests: XCTestCase {
         XCTAssertEqual(draft.notNow, .post(path: "/api/oo/shops/res%2F1/strategy-manager/recommendations/statement_draft:2026-11-01/dismiss", body: [:]))
         let rec = list[1]
         XCTAssertEqual(rec.text, "I think we should lower the November GMV target to $25,000.")
-        XCTAssertEqual(rec.yesLabel, "Hand to Sian")
+        XCTAssertEqual(rec.yesLabel, "Yes, do it")
         XCTAssertEqual(rec.doneText, "Handed to Sian")
         XCTAssertEqual(rec.yes, .post(path: "/api/oo/shops/res%2F1/strategy-manager/recommendations/lower_gmv_target:2026-11:25000/apply", body: [:]))
         XCTAssertEqual(list[2].text, "I think we should GMV is behind.", "acronyms keep their case")
@@ -102,5 +104,44 @@ final class SuggestionTests: XCTestCase {
             priorityReasons: [], priorityTip: nil, expiresAt: nil, ageSeconds: 3600,
             recommendation: "All fit the brief.", recommendationAnswer: recommendationAnswer,
             assigneeLine: "", decidedReason: nil, itemLink: nil, shopName: "YUNJAC", resource: "r1", mine: mine)
+    }
+}
+
+@MainActor
+final class SuggestionFeedTests: XCTestCase {
+    func testManagementFeedShowsOpenIdeasAndAnswersMoveToHistory() async {
+        let center = OllieSuggestionCenter()
+        center.seedDemo()
+        XCTAssertEqual(center.feed.map(\.agent), ["Strategy Manager", "Creator Manager"])
+        let first = center.feed[0]
+        await center.notNow(first)
+        XCTAssertEqual(center.feed.map(\.agent), ["Creator Manager"])
+        XCTAssertEqual(center.history.map(\.outcome), ["Not now"])
+        let result = await center.yes(center.feed[0])
+        XCTAssertTrue(result.ok)
+        XCTAssertTrue(center.feed.isEmpty)
+        XCTAssertEqual(center.history.last?.yes, true)
+        XCTAssertTrue(center.working.isEmpty)
+    }
+
+    /// Renders the bubble and the Management chat offscreen for a visual check (no window opens).
+    func testRenderPreviews() throws {
+        guard let dir = ProcessInfo.processInfo.environment["OLLIE_RENDER_DIR"] else { throw XCTSkip("set OLLIE_RENDER_DIR") }
+        let store = Store.demo()
+        OllieSuggestionCenter.shared.seedDemo()
+        let bubble = SuggestionBubbleView(suggestion: OllieSuggestions.demo("strategy")).environmentObject(store)
+            .frame(width: 360, height: 230).background(Color(white: 0.3))
+        let chat = ShellView().environmentObject(store).frame(width: 400, height: 640).background(SiftStyle.surface)
+        store.showManagement()
+        let rows = VStack(alignment: .leading, spacing: 14) {
+            ForEach(OllieSuggestionCenter.shared.feed) { SuggestionMessage(suggestion: $0) }
+        }.padding(16).frame(width: 340).background(SiftStyle.surface).environmentObject(store)
+        for (name, view) in [("bubble", AnyView(bubble)), ("management", AnyView(chat)), ("rows", AnyView(rows))] {
+            let renderer = ImageRenderer(content: view.environment(\.colorScheme, .dark))
+            renderer.scale = 2
+            let image = try XCTUnwrap(renderer.nsImage)
+            let rep = try XCTUnwrap(NSBitmapImageRep(data: try XCTUnwrap(image.tiffRepresentation)))
+            try XCTUnwrap(rep.representation(using: .png, properties: [:])).write(to: URL(fileURLWithPath: dir + "/\(name).png"))
+        }
     }
 }
