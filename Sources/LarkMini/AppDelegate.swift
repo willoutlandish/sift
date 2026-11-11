@@ -98,6 +98,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         queryCenter.addObserver(self, selector: #selector(companionDragMapNote(_:)),
                                 name: .companionDragMapRequest, object: nil,
                                 suspensionBehavior: .deliverImmediately)
+        queryCenter.addObserver(self, selector: #selector(suggestionNote(_:)),
+                                name: .suggestionRequest, object: nil,
+                                suspensionBehavior: .deliverImmediately)
         queryCenter.addObserver(self, selector: #selector(settingsNote(_:)),
                                 name: .appSettingsChanged, object: nil,
                                 suspensionBehavior: .deliverImmediately)
@@ -116,7 +119,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             MainActor.assumeIsolated { self?.applyShowInMode() }
         }
         applyShowInMode()
-        store.isExpanded = demoMode && !CommandLine.arguments.contains("--demo-needs-you")
+        let demoSuggestion = CommandLine.arguments.firstIndex(of: "--demo-suggestion").map { index in
+            CommandLine.arguments.count > index + 1 && !CommandLine.arguments[index + 1].hasPrefix("--")
+                ? CommandLine.arguments[index + 1] : "strategy"
+        }
+        store.isExpanded = demoMode && !CommandLine.arguments.contains("--demo-needs-you") && demoSuggestion == nil
+        if demoMode { OllieSuggestionCenter.shared.seedDemo() }
+        if let demoSuggestion {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 2) { OllieSuggestionCenter.shared.showDemo(demoSuggestion) }
+        }
         if UserDefaults.standard.bool(forKey: "OllieUpdatedRelaunch") {
             store.isExpanded = false
             UserDefaults.standard.removeObject(forKey: "OllieUpdatedRelaunch")
@@ -223,6 +234,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     @objc nonisolated private func companionDragMapNote(_ note: Notification) {
         AppQueryLog.record("drag-map")
         Task { @MainActor in self.answerCompanionDragMap(note) }
+    }
+
+    @objc nonisolated private func suggestionNote(_ note: Notification) {
+        AppQueryLog.record("suggest")
+        let action = note.userInfo?["action"] as? String ?? ""
+        let kind = note.userInfo?["kind"] as? String ?? "strategy"
+        Task { @MainActor in
+            switch action {
+            case "demo": OllieSuggestionCenter.shared.showDemo(kind)
+            case "refresh": OllieSuggestionCenter.shared.forceRefresh()
+            default: UserDefaults.standard.synchronize()
+            }
+        }
     }
 
     @objc nonisolated private func settingsNote(_ note: Notification) {

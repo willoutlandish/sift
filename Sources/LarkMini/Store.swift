@@ -9,6 +9,7 @@ final class Store: ObservableObject {
     enum Pane: Equatable {
         case lark
         case ollie
+        case management
         case control
         case settings
         case chat(String)
@@ -17,6 +18,7 @@ final class Store: ObservableObject {
     enum RailItem: Equatable {
         case lark
         case ollie
+        case management
         case control
         case settings
         case chat(String)
@@ -33,7 +35,7 @@ final class Store: ObservableObject {
     @Published var openChat: Chat?
     @Published var isExpanded = true {
         didSet {
-            if isExpanded { dismissBubble() } else { controlTail = Self.controlPage }
+            if isExpanded { setAsideSuggestion(); dismissBubble() } else { controlTail = Self.controlPage; scheduleNextSuggestion() }
             sendWatchGap()
         }
     }
@@ -43,8 +45,12 @@ final class Store: ObservableObject {
     @Published var controlFocusAsks = false
     @Published private(set) var pane: Pane = .ollie
     @Published var ollieScreen = OllieScreen.initial
+    /// Where a suggestion's "Yes" is: waiting, working, or how it ended.
+    @Published private(set) var suggestionStatus: SuggestionStatus = .idle
     private var bubbleExpiry: Task<Void, Never>?
+    private var nextSuggestion: Task<Void, Never>?
     private var bubbleHeld = false
+    private var holdCap: Task<Void, Never>?
     private var bubbledNeeds = Set<String>()
     @Published var showingShortcuts = false
     @Published var deviceCode: DeviceCode?
@@ -196,6 +202,7 @@ final class Store: ObservableObject {
         adoptSeat(state.control)
         muted = state.muted
         companionURL = state.effectiveCompanionURL
+        OllieSuggestionCenter.shared.store = self
         let saved = DraftFile.load()
         drafts = saved.chats
         controlDraft = saved.control
@@ -789,6 +796,18 @@ final class Store: ObservableObject {
         if searchOpen { closeSearch() }
     }
 
+    /// The pinned Management chat under Ollie: what the agents want to do, with a yes.
+    func showManagement() {
+        if searchOpen { closeSearch() }
+        showingSettings = false
+        controlOpen = false
+        openChat = nil
+        pane = .management
+        guard !isDemo else { return }
+        startCompanionMonitor()
+        CompanionApprovalsMonitor.shared.refresh()
+    }
+
     func showOllie() {
         if searchOpen { closeSearch() }
         ollieOpen = true
@@ -1189,6 +1208,8 @@ final class Store: ObservableObject {
     /// A new Lark message while collapsed: one soft bubble, bursts coalesce.
     func larkArrival(chat: Chat, text: String) {
         guard !isExpanded else { return }
+        setAsideSuggestion()
+        bubbleHeld = false
         bubble = EdgeBubble.arrival(bubble, chatId: chat.id, name: chat.displayName, text: text)
         expireBubble(after: 6)
     }
@@ -1196,26 +1217,98 @@ final class Store: ObservableObject {
     /// A genuine Control need (open ask or permission request), shown once per need.
     func needArrival(id: String, text: String) {
         guard !isExpanded, bubbledNeeds.insert(id).inserted else { return }
+        setAsideSuggestion()
+        bubbleHeld = false
         bubble = EdgeBubble(target: .control, title: "Control needs you", text: text)
         expireBubble(after: 12)
     }
 
+    /// Hover keeps a bubble up, but never past two minutes, so a resting pointer can't block the line.
     func holdBubble(_ hovering: Bool) {
         bubbleHeld = hovering
-        if !hovering, bubble != nil { expireBubble(after: 3) }
+        holdCap?.cancel()
+        if hovering {
+            holdCap = Task { [weak self] in
+                try? await Task.sleep(nanoseconds: 120_000_000_000)
+                guard !Task.isCancelled, let self, self.bubbleHeld else { return }
+                self.bubbleHeld = false
+                self.setAsideSuggestion()
+                self.dismissBubble()
+            }
+        } else if bubble != nil { expireBubble(after: 3) }
     }
 
     func dismissBubble() {
         bubbleExpiry?.cancel()
+        holdCap?.cancel()
         bubbleHeld = false
         if bubble != nil { bubble = nil }
+        scheduleNextSuggestion()
+    }
+
+    // MARK: - Suggestions
+
+    enum SuggestionStatus: Equatable { case idle, working, done(String), failed(String) }
+
+    /// Free to say something new: collapsed, and nothing else beside the head.
+    var canOfferSuggestion: Bool { !isExpanded && bubble == nil }
+
+    /// An agent's proposal beside the head. A preview (`force`) shows even over a chat bubble.
+    func offerSuggestion(_ suggestion: OllieSuggestion, force: Bool = false) {
+        // While the panel is open the head is hidden; it waits and shows when Ollie collapses.
+        guard !isExpanded, force || bubble == nil else { OllieSuggestionCenter.shared.requeue(suggestion); return }
+        nextSuggestion?.cancel()
+        suggestionStatus = .idle
+        bubbleHeld = false
+        bubble = EdgeBubble(target: .suggestion, title: suggestion.byline, text: suggestion.text, suggestion: suggestion)
+        expireBubble(after: 30)
+    }
+
+    func answerSuggestion(yes: Bool) {
+        guard let suggestion = bubble?.suggestion, suggestionStatus != .working else { return }
+        bubbleExpiry?.cancel()
+        // After a Yes (done or failed) the close button only closes; it never undoes the answer.
+        guard suggestionStatus == .idle else { dismissBubble(); return }
+        guard yes else {
+            Task { await OllieSuggestionCenter.shared.notNow(suggestion) }
+            dismissBubble()
+            return
+        }
+        suggestionStatus = .working
+        Task { [weak self] in
+            let result = await OllieSuggestionCenter.shared.yes(suggestion)
+            guard let self, self.bubble?.suggestion?.id == suggestion.id else { return }
+            self.suggestionStatus = result.ok ? .done(result.message) : .failed(result.message)
+            self.expireBubble(after: result.ok ? 3 : 8)
+        }
+    }
+
+    /// A chat or a Control need takes the spot; an unanswered suggestion goes back in line.
+    private func setAsideSuggestion() {
+        guard let suggestion = bubble?.suggestion, suggestionStatus == .idle else { return }
+        OllieSuggestionCenter.shared.requeue(suggestion)
+    }
+
+    private func scheduleNextSuggestion() {
+        nextSuggestion?.cancel()
+        nextSuggestion = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: 4_000_000_000)
+            guard !Task.isCancelled, self != nil else { return }
+            OllieSuggestionCenter.shared.showNextIfIdle()
+        }
     }
 
     /// Opens what the bubble is about; never sends anything.
     func openBubble() {
         guard let target = bubble?.target else { return }
+        if target == .suggestion, let suggestion = bubble?.suggestion {
+            dismissBubble()
+            OllieSuggestionCenter.shared.open(suggestion)
+            return
+        }
         dismissBubble()
         switch target {
+        case .suggestion: break
         case .chat(let id): openLinkedChat(id)
         case .inbox: showInbox()
         case .control: openControl(); controlFocusAsks = true
@@ -1229,6 +1322,7 @@ final class Store: ObservableObject {
             try? await Task.sleep(nanoseconds: UInt64(seconds * 1_000_000_000))
             guard !Task.isCancelled, let self, !self.bubbleHeld else { return }
             self.bubble = nil
+            self.scheduleNextSuggestion()
         }
     }
 
@@ -1543,6 +1637,7 @@ extension Store.Pane {
         switch self {
         case .lark: return .lark
         case .ollie: return .ollie
+        case .management: return .management
         case .control: return .control
         case .settings: return .settings
         case .chat(let id): return .chat(id)
