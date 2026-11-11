@@ -232,9 +232,7 @@ struct SuggestionBubbleView: View {
                 HStack(spacing: 8) {
                     FaceIcon(size: 26)
                     VStack(alignment: .leading, spacing: 1) {
-                        Text(suggestion.isNotice ? "Needs a look" : "Ollie has an idea")
-                            .font(.system(size: 11, weight: .semibold))
-                            .foregroundStyle(suggestion.isNotice ? Color.orange : SiftStyle.green)
+                        Text("Ollie has an idea").font(.system(size: 11, weight: .semibold)).foregroundStyle(SiftStyle.green)
                         Text(suggestion.byline).font(.system(size: 11)).foregroundStyle(SiftStyle.secondary).lineLimit(1)
                     }
                     Spacer(minLength: 0)

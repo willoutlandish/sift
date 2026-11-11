@@ -91,9 +91,7 @@ struct SuggestionMessage: View {
         HStack(alignment: .top, spacing: 10) {
             FaceIcon(size: 28)
             VStack(alignment: .leading, spacing: 6) {
-                Text((suggestion.isNotice ? "Needs a look · " : "") + suggestion.byline)
-                    .font(.system(size: 11, weight: .semibold))
-                    .foregroundStyle(suggestion.isNotice ? Color.orange : SiftStyle.green)
+                Text(suggestion.byline).font(.system(size: 11, weight: .semibold)).foregroundStyle(SiftStyle.green)
                 Text(suggestion.text).font(.system(size: 13, weight: .medium))
                     .fixedSize(horizontal: false, vertical: true)
                 if let detail = suggestion.detail {
@@ -155,7 +153,7 @@ struct AnsweredRow: View {
             }
             HStack {
                 Spacer(minLength: 40)
-                Label(answered.outcome, systemImage: answered.yes ? "checkmark" : (answered.suggestion.isNotice ? "hand.raised" : "clock"))
+                Label(answered.outcome, systemImage: answered.yes ? "checkmark" : "clock")
                     .font(.system(size: 12, weight: .medium))
                     .padding(.horizontal, 10).padding(.vertical, 6)
                     .background((answered.yes ? SiftStyle.green.opacity(0.22) : SiftStyle.raised), in: Capsule())

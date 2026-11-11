@@ -30,35 +30,43 @@ final class SuggestionTests: XCTestCase {
         XCTAssertEqual(OllieSuggestions.currentDraftText(strategyBody), "GMV $26,000 this month.")
         XCTAssertNil(OllieSuggestions.currentDraftText(#"{"agent":{},"draft":null}"#))
         let rec = list[1]
-        XCTAssertEqual(rec.text, "I think we should lower the November GMV target to $25,000.")
-        XCTAssertEqual(rec.yesLabel, "Yes, do it")
-        XCTAssertEqual(rec.doneText, "Handed to Sian")
+        XCTAssertEqual(rec.text, "Want me to ask Sian to lower the November GMV target to $25,000?",
+                       "it says who does the work; Ollie doesn't do it by magic")
+        XCTAssertEqual(rec.yesLabel, "Yes, ask them")
+        XCTAssertEqual(rec.doneText, "Asked Sian")
         XCTAssertEqual(rec.yes, .post(path: "/api/oo/shops/res%2F1/strategy-manager/recommendations/lower_gmv_target%3A2026-11%3A25000/apply", body: [:]))
-        XCTAssertEqual(list[2].text, "I think we should GMV is behind.", "acronyms keep their case")
+        XCTAssertEqual(list[2].text, "Want me to hand this to the team: GMV is behind?", "acronyms keep their case")
     }
 
-    func testTheAgentsOwnHandOffsComeWithStopAndAPersonsApplyDoesNot() {
+    func testAnythingAlreadyHandedIsNotOfferedAgain() {
         let body = #"""
         {"agent":{"name":"Strategy Manager"},"period":"2026-11-01","draft":null,
          "check":{"recommendations":[
-           {"key":"samples:2026-11","title":"Send 20 more samples this week","reason":"8 of 28.","to_name":"Creator Manager",
-            "dismissed":false,"handed":{"status":"open","via":"handoff","handoff_id":"h-42","to_role":"creator-manager"}},
-           {"key":"ads:2026-11","title":"Raise the ad budget","to_name":"Ads Manager",
-            "dismissed":false,"handed":{"status":"open","via":"handoff","handoff_id":"staff:abc"}},
-           {"key":"done:2026-11","title":"Old","dismissed":false,"handed":{"status":"done","via":"handoff","handoff_id":"h-1"}},
-           {"key":"stopping:2026-11","title":"Stopping","dismissed":false,"handed":{"status":"stop_requested","via":"handoff","handoff_id":"h-2"}},
-           {"key":"ask:2026-11","title":"Ask","dismissed":false,"handed":{"status":"open","via":"ask","handoff_id":"a-1"}}
+           {"key":"a","title":"Send more samples","to_name":"Creator Manager","via":"handoff","dismissed":false,
+            "handed":{"status":"open","via":"handoff","handoff_id":"h-42"}},
+           {"key":"b","title":"Raise the ad budget","to_name":"Ads Manager","via":"handoff","dismissed":false,
+            "handed":{"status":"open","via":"handoff","handoff_id":"staff:abc"}},
+           {"key":"c","title":"Review the bottom campaigns","to_name":"Ads Manager","via":"handoff","dismissed":false,"handed":null}
          ]}}
         """#
         let list = OllieSuggestions.strategyManager(body, resource: "r1", shop: "YUNJAC")
-        XCTAssertEqual(list.map(\.id), ["sm:r1:handoff:samples:2026-11:h-42"],
-                       "only a hand-off nobody approved; a person's Apply, finished, stopping and asks are not alarms")
-        let notice = list[0]
-        XCTAssertTrue(notice.isNotice)
-        XCTAssertEqual(notice.text, "This went to Creator Manager without anyone's OK: send 20 more samples this week.")
-        XCTAssertEqual(notice.yes, .acknowledge)
-        XCTAssertEqual(notice.notNowLabel, "Stop")
-        XCTAssertEqual(notice.notNow, .post(path: "/api/oo/shops/r1/strategy-manager/handoffs/stop", body: ["key": "samples:2026-11"]))
+        XCTAssertEqual(list.map(\.id), ["sm:r1:rec:c"], "a hand-off, by the agent or by a person's Yes, is never re-offered or alarmed on")
+    }
+
+    func testRealHeroIdeaSaysWhoDoesItAndShortensTheListingTitle() {
+        let product = "YUNJAC Base Prep Korean Primer (1.35 fl oz) – Silicone-Free Grip Makeup Base, Serum Texture for Radiant Skin, Long-Lasting Glow with Rice Ferment, Ceramide, Niacinamide, Squalane"
+        let body = """
+        {"agent":null,"period":"2026-11-01","draft":null,"check":{"recommendations":[
+          {"key":"hero_out_of_stock:113197","title":"Restock \(product) or choose another hero product",
+           "reason":"\(product) is this month's hero product and shows as unavailable (checked 9 Nov).",
+           "to_role":"account-manager","to_name":"account manager","via":"ask","handed":null,"dismissed":false}]}}
+        """
+        let idea = try! XCTUnwrap(OllieSuggestions.strategyManager(body, resource: "r", shop: "YUNJAC").first)
+        XCTAssertEqual(idea.text, "Want me to ask the account manager to restock YUNJAC Base Prep Korean Primer or choose another hero product?")
+        XCTAssertEqual(idea.detail, "YUNJAC Base Prep Korean Primer is this month's hero product and shows as unavailable (checked 9 Nov).")
+        XCTAssertEqual(idea.yesLabel, "Yes, ask them")
+        XCTAssertEqual(idea.doneText, "Saved for the account manager. It's sent once the Strategy Manager is switched on.",
+                       "before the agent is live, Yes only records it, and says so")
     }
 
     func testNoStrategyManagerMeansNoSuggestions() {
@@ -157,7 +165,6 @@ final class SuggestionFeedTests: XCTestCase {
         let center = OllieSuggestionCenter()
         center.seedDemo()
         XCTAssertEqual(center.feed.map(\.agent), ["Strategy Manager", "Strategy Manager", "Creator Manager"])
-        XCTAssertFalse(center.feed.contains(where: \.isNotice), "hand-offs wait for a yes; the preview has none done unasked")
         let first = center.feed[0]
         await center.notNow(first)
         XCTAssertEqual(center.feed.map(\.agent), ["Strategy Manager", "Creator Manager"])
@@ -195,12 +202,10 @@ final class SuggestionFeedTests: XCTestCase {
             .frame(width: 360, height: 230).background(Color(white: 0.3))
         let chat = ShellView().environmentObject(store).frame(width: 400, height: 640).background(SiftStyle.surface)
         store.showManagement()
-        let notice = SuggestionBubbleView(suggestion: OllieSuggestions.demo("handoff")).environmentObject(store)
-            .frame(width: 360, height: 230).background(Color(white: 0.3))
         let rows = VStack(alignment: .leading, spacing: 14) {
             ForEach(OllieSuggestionCenter.shared.feed) { SuggestionMessage(suggestion: $0) }
         }.padding(16).frame(width: 340).background(SiftStyle.surface).environmentObject(store)
-        for (name, view) in [("bubble", AnyView(bubble)), ("management", AnyView(chat)), ("rows", AnyView(rows)), ("notice", AnyView(notice))] {
+        for (name, view) in [("bubble", AnyView(bubble)), ("management", AnyView(chat)), ("rows", AnyView(rows))] {
             let renderer = ImageRenderer(content: view.environment(\.colorScheme, .dark))
             renderer.scale = 2
             let image = try XCTUnwrap(renderer.nsImage)

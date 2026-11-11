@@ -12,8 +12,6 @@ struct OllieSuggestion: Equatable, Identifiable {
         case approve(CompanionTodoItem)
         /// Local preview only: nothing is read or written.
         case demo(String)
-        /// Nothing to send: you've seen it and it can carry on.
-        case acknowledge
     }
 
     let id: String
@@ -29,8 +27,6 @@ struct OllieSuggestion: Equatable, Identifiable {
     var doneText = "Done"
     var notNowLabel = "Not now"
     var notNowDoneText = "Not now"
-    /// Something an agent already did on its own (a hand-off), not a proposal waiting on you.
-    var isNotice = false
 
     var byline: String { shop.isEmpty ? agent : agent + " · " + shop }
 }
@@ -49,15 +45,12 @@ enum OllieSuggestions {
             let title: String?
             let reason: String?
             let to_name: String?
+            let via: String?
             let dismissed: Bool?
             let handed: Handed?
         }
         /// Any non-null hand-off means it is already with someone.
-        struct Handed: Decodable {
-            let status: String?
-            let via: String?
-            let handoff_id: String?
-        }
+        struct Handed: Decodable {}
         let agent: Agent?
         let period: String?
         let draft: Draft?
@@ -95,28 +88,27 @@ enum OllieSuggestions {
         }
         for rec in state.check?.recommendations ?? [] {
             guard let key = nonEmpty(rec.key), let title = nonEmpty(rec.title), rec.dismissed != true else { continue }
-            let to = nonEmpty(rec.to_name) ?? "the team"
-            if let handed = rec.handed {
-                // Hand-offs wait for a person's Apply (recorded as staff:…). One the agent made by itself
-                // breaks that rule (Will, 11 Nov), so say it plainly and offer Stop.
-                guard handed.via == "handoff", ["open", "claimed"].contains(handed.status ?? "open"),
-                      let handoff = nonEmpty(handed.handoff_id), !handoff.hasPrefix("staff:") else { continue }
-                out.append(OllieSuggestion(
-                    id: "sm:\(resource):handoff:\(key):\(handoff)", agent: agent, shop: shop,
-                    text: "This went to \(to) without anyone's OK: " + lowerFirst(title) + ".", detail: nonEmpty(rec.reason),
-                    yesLabel: "Let it go ahead", yes: .acknowledge,
-                    notNow: .post(path: strategyPath(resource: resource, "/handoffs/stop"), body: ["key": key]),
-                    openPath: "/companion/app", doneText: "\(to) carries on",
-                    notNowLabel: "Stop", notNowDoneText: "Stopped. It's withdrawn on the agent's next run.",
-                    isNotice: true))
-                continue
-            }
+            // A role name ("account manager") reads with "the"; a person's name does not.
+            let named = nonEmpty(rec.to_name) ?? "team"
+            let to = named.first?.isLowercase == true ? "the " + named : named
+            // Already with someone (a person's Yes, or later the agent's own record of it): not a new idea.
+            // No "handed off without your OK" alarm: the reader keeps only the newest row per key, so an
+            // approved hand-off the agent re-records would look unapproved, and its Stop would undo your Yes.
+            guard rec.handed == nil else { continue }
+            // Nothing here does the work itself: Yes asks the account manager, or hands it to an agent.
+            let task = lowerFirst(shortProductNames(title))
+            let asks = rec.via == "ask"
+            let live = state.agent != nil
             out.append(OllieSuggestion(
                 id: "sm:\(resource):rec:\(key)", agent: agent, shop: shop,
-                text: "I think we should " + lowerFirst(title) + ".", detail: nonEmpty(rec.reason),
+                text: asks ? "Want me to ask \(to) to \(task)?" : "Want me to hand this to \(to): \(task)?",
+                detail: nonEmpty(rec.reason).map(shortProductNames),
+                yesLabel: asks ? "Yes, ask them" : "Yes, send it",
                 yes: .post(path: strategyPath(resource: resource, "/recommendations/" + pathSegment(key) + "/apply"), body: [:]),
                 notNow: .post(path: strategyPath(resource: resource, "/recommendations/" + pathSegment(key) + "/dismiss"), body: [:]),
-                openPath: "/companion/app", doneText: "Handed to \(to)"))
+                openPath: "/companion/app",
+                doneText: live ? (asks ? "Asked \(to)" : "Handed to \(to)")
+                    : "Saved for \(to). It's sent once the Strategy Manager is switched on."))
         }
         return out
     }
@@ -153,24 +145,16 @@ enum OllieSuggestions {
         case "samples":
             return OllieSuggestion(
                 id: "demo:samples:\(UUID().uuidString)", agent: "Strategy Manager", shop: "YUNJAC",
-                text: "I think we should send 20 more samples this week. Want me to hand it to Creator Manager?",
-                detail: "Samples are 8 of 28 this week; at this rate November ends 40% under the video target.",
-                yes: .demo("samples"), doneText: "Handed to Creator Manager (preview, nothing sent)")
-        case "handoff", "stop":
-            return OllieSuggestion(
-                id: "demo:handoff:\(UUID().uuidString)", agent: "Strategy Manager", shop: "YUNJAC",
-                text: "This went to Creator Manager without anyone's OK: send 20 more samples this week.",
-                detail: "Samples are 8 of 28 this week; at this rate November ends 40% under the video target.",
-                yesLabel: "Let it go ahead", yes: .demo("handoff"), notNow: .demo("stop"),
-                doneText: "Creator Manager carries on (preview)", notNowLabel: "Stop",
-                notNowDoneText: "Stopped (preview, nothing sent)", isNotice: true)
+                text: "Want me to hand this to Creator Manager: raise the outreach daily limit from 20 to 30?",
+                detail: "8 of 28 samples sent this week, 16 expected by now, with 3 days left.",
+                yesLabel: "Yes, send it", yes: .demo("samples"), doneText: "Handed to Creator Manager (preview, nothing sent)")
         default:
             return OllieSuggestion(
                 id: "demo:strategy:\(UUID().uuidString)", agent: "Strategy Manager", shop: "YUNJAC",
-                text: "I think we should lower the November GMV target to $25,000.",
+                text: "Want me to ask Sian to lower the November GMV target to $25,000?",
                 detail: "$6,273 in 7 days is 61% of pace; at this rate the month ends near $26,900 against $40,000.",
-                yes: .demo("strategy"),
-                doneText: "Handed to account manager (preview, nothing saved)")
+                yesLabel: "Yes, ask them", yes: .demo("strategy"),
+                doneText: "Asked Sian (preview, nothing sent)")
         }
     }
 
@@ -179,6 +163,16 @@ enum OllieSuggestions {
     static func pathSegment(_ raw: String) -> String {
         let unreserved = CharacterSet(charactersIn: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~!*'()")
         return raw.addingPercentEncoding(withAllowedCharacters: unreserved) ?? raw
+    }
+
+    /// Shop listing titles run to a paragraph ("Primer (1.35 fl oz) – Silicone-Free Grip …");
+    /// keep the name, drop the size and the sales copy after a dash.
+    static func shortProductNames(_ text: String) -> String {
+        var out = text.replacingOccurrences(
+            of: #"\s*(\([^)]*\))?\s+[–—|]\s+[^.?]*?(?=\s+or\s|\s+is\s|\s+and\s|[.?]|$)"#,
+            with: "", options: .regularExpression)
+        out = out.replacingOccurrences(of: #"\s{2,}"#, with: " ", options: .regularExpression)
+        return out.trimmingCharacters(in: .whitespaces)
     }
 
     static func lowerFirst(_ text: String) -> String {
@@ -418,7 +412,7 @@ final class OllieSuggestionCenter: ObservableObject {
         markHandled(suggestion.id)
         record(suggestion, yes: true, outcome: suggestion.doneText)
         switch suggestion.yes {
-        case .demo, .acknowledge: break
+        case .demo: break
         default: CompanionApprovalsMonitor.shared.refresh()
         }
         return (true, suggestion.doneText)
@@ -454,7 +448,7 @@ final class OllieSuggestionCenter: ObservableObject {
         let object: [String: Any] = [
             "enabled": enabled,
             "watched": Self.watched,
-            "feed": feed.map { ["id": $0.id, "agent": $0.agent, "shop": $0.shop, "text": $0.text, "notice": $0.isNotice] },
+            "feed": feed.map { ["id": $0.id, "agent": $0.agent, "shop": $0.shop, "text": $0.text] },
             "waiting_to_pop": queue.pending.count,
             "answered_this_session": history.map { ["text": $0.suggestion.text, "outcome": $0.outcome] },
             "strategy_reads": strategyReads,
@@ -486,8 +480,6 @@ final class OllieSuggestionCenter: ObservableObject {
         switch action {
         case .demo:
             try? await Task.sleep(nanoseconds: 700_000_000)
-            return (true, nil)
-        case .acknowledge:
             return (true, nil)
         case .applyDraft(let resource, let applyText):
             // As the in-app card does: re-read the draft and send only if it is still the one shown.
