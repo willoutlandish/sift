@@ -189,7 +189,9 @@ final class EdgeBubbleController {
     private func refresh(expanded: Bool) {
         // Suggestions have their own switch (`ollie suggest off`); Lark pop-ups do not gate them.
         let allowed = store.bubble?.suggestion != nil ? OllieSuggestionCenter.shared.enabled : store.settings.showLarkPopups
+        // A bubble speaks for the head: with no head on screen (hidden, or --background-check), none shows.
         let visible = store.bubble != nil
+            && PanelBridge.shared.panel?.isVisible == true
             && !expanded
             && allowed
             && !PanelBridge.shared.isFocused

@@ -244,6 +244,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             switch action {
             case "demo": OllieSuggestionCenter.shared.showDemo(kind)
             case "refresh": OllieSuggestionCenter.shared.forceRefresh()
+            case "answer":
+                let id = note.userInfo?["id"] as? String ?? ""
+                let yes = note.userInfo?["yes"] as? Bool ?? false
+                OllieSuggestionCenter.shared.answer(idPrefix: id, yes: yes)
             default: UserDefaults.standard.synchronize()
             }
         }

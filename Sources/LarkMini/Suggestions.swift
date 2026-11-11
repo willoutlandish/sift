@@ -360,12 +360,26 @@ final class OllieSuggestionCenter: ObservableObject {
         setLatest([OllieSuggestions.demo("strategy"), OllieSuggestions.demo("samples"), OllieSuggestions.demo("creator")], source: "demo:")
     }
 
+    /// `ollie suggest answer`: one idea, matched by id or a unique id prefix.
+    func answer(idPrefix: String, yes: Bool) {
+        let matches = feed.filter { $0.id == idPrefix || $0.id.hasPrefix(idPrefix) }
+        guard !idPrefix.isEmpty, matches.count == 1, let suggestion = matches.first else {
+            lastAnswerError = matches.isEmpty ? "No idea matches \(idPrefix)" : "\(matches.count) ideas match \(idPrefix)"
+            writeSnapshot()
+            return
+        }
+        lastAnswerError = nil
+        answerFromFeed(suggestion, yes: yes)
+    }
+    private var lastAnswerError: String?
+
     /// Yes or Not now from the Management chat; a bubble about the same thing goes away.
     func answerFromFeed(_ suggestion: OllieSuggestion, yes: Bool) {
         guard !working.contains(suggestion.id) else { return }
         if store?.bubble?.suggestion?.id == suggestion.id { store?.dismissBubble() }
         Task {
             if yes { _ = await self.yes(suggestion) } else { await notNow(suggestion) }
+            self.writeSnapshot()
         }
     }
 
@@ -438,6 +452,9 @@ final class OllieSuggestionCenter: ObservableObject {
     private func rebuildFeed() {
         let open = latest.flatMap(\.items).filter { !queue.handled.contains($0.id) }
         if open != feed { feed = open }
+        // An error belongs to an idea still on offer; once it's gone, so is the error.
+        let ids = Set(open.map(\.id))
+        if failures.keys.contains(where: { !ids.contains($0) }) { failures = failures.filter { ids.contains($0.key) } }
         writeSnapshot()
     }
 
@@ -450,7 +467,9 @@ final class OllieSuggestionCenter: ObservableObject {
             "watched": Self.watched,
             "feed": feed.map { ["id": $0.id, "agent": $0.agent, "shop": $0.shop, "text": $0.text] },
             "waiting_to_pop": queue.pending.count,
-            "answered_this_session": history.map { ["text": $0.suggestion.text, "outcome": $0.outcome] },
+            "answered_this_session": history.map { ["id": $0.id, "text": $0.suggestion.text, "outcome": $0.outcome] },
+            "failures": failures,
+            "last_answer_error": lastAnswerError ?? NSNull(),
             "strategy_reads": strategyReads,
             "at": ISO8601DateFormatter().string(from: Date()),
         ]

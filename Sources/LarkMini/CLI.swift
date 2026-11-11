@@ -385,6 +385,14 @@ enum CLI {
             }
             object["ok"] = true
             return ok(object)
+        case "answer":
+            // The same as tapping Yes or Not now in the Management chat; for agents and end-to-end tests.
+            let rest = Array(args.dropFirst())
+            guard rest.count == 2, ["yes", "no", "not-now"].contains(rest[1]) else {
+                return fail("suggest answer needs <id or prefix> yes|not-now (ids from `ollie suggest list`)")
+            }
+            postQuery(.suggestionRequest, userInfo: ["action": "answer", "id": rest[0], "yes": rest[1] == "yes"])
+            return ok(["ok": true, "note": "Sent; check `ollie suggest list` for the outcome."])
         case "watch", "unwatch":
             guard let resource = args.dropFirst().first, !resource.isEmpty else { return fail("suggest \(sub) needs a shop resource id") }
             var list = UserDefaults.standard.stringArray(forKey: OllieSuggestionCenter.watchKey) ?? []
@@ -753,6 +761,7 @@ enum CLI {
                   demo [strategy|samples|creator]  preview one; nothing is read or written
                   refresh                          read the agents' proposals now
                   list                             what is on offer and what each shop read found
+                  answer <id> yes|not-now          as if tapped in the Management chat
                   watch | unwatch <resource>       always read this shop's Strategy Manager
                   on | off | status
       settings  set --show-in menubar|edge|both
