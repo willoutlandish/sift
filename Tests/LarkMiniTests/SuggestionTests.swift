@@ -59,7 +59,7 @@ final class SuggestionTests: XCTestCase {
         {"agent":null,"period":"2026-11-01","draft":null,"check":{"recommendations":[
           {"key":"hero_out_of_stock:113197","title":"Restock \(product) or choose another hero product",
            "reason":"\(product) is this month's hero product and shows as unavailable (checked 9 Nov).",
-           "to_role":"account-manager","to_name":"account manager","via":"ask","handed":null,"dismissed":false}]}}
+           "to_role":"account-manager","to_name":"the account manager","via":"ask","handed":null,"dismissed":false}]}}
         """
         let idea = try! XCTUnwrap(OllieSuggestions.strategyManager(body, resource: "r", shop: "YUNJAC").first)
         XCTAssertEqual(idea.text, "Want me to ask the account manager to restock YUNJAC Base Prep Korean Primer or choose another hero product?")
@@ -89,7 +89,26 @@ final class SuggestionTests: XCTestCase {
         let list = OllieSuggestions.approvals(snapshot)
         XCTAssertEqual(list.map(\.id), ["approval:a1:v1"])
         XCTAssertEqual(list[0].agent, "Creator Manager")
-        XCTAssertEqual(list[0].yes, .approve(ok))
+        XCTAssertEqual(list[0].yes, .answer(ok, answer: "approve", text: nil))
+    }
+
+    func testAnAgentsSuggestedAnswerIsTakenAsChangeWithItsText() {
+        // The real shape of agent asks (AgentOpenWorkSource): answers change/skip, recommendation text only.
+        let ask = item(id: "q1", mine: true, recommendationAnswer: "change", answers: ["change", "skip"], recommendation: "Use the spring brief")
+        let noText = item(id: "q2", mine: true, recommendationAnswer: "change", answers: ["change", "skip"], recommendation: nil)
+        let list = OllieSuggestions.approvals(CompanionTodoSnapshot(total: 2, shops: [], orderedItems: [ask, noText]))
+        XCTAssertEqual(list.map(\.id), ["approval:q1:v1"])
+        XCTAssertEqual(list[0].detail, "I'd go with: Use the spring brief")
+        XCTAssertEqual(list[0].yesLabel, "Yes, use that")
+        XCTAssertEqual(list[0].yes, .answer(ask, answer: "change", text: "Use the spring brief"),
+                       "the same as the panel's Take this recommendation")
+    }
+
+    func testTitleShorteningKeepsProseAndHandlesPlainHyphens() {
+        XCTAssertEqual(OllieSuggestions.shortProductNames("Restock Glow Primer - 30ml - Silicone Free Grip Base Serum or choose another"),
+                       "Restock Glow Primer or choose another")
+        XCTAssertEqual(OllieSuggestions.shortProductNames("Budget approved – finance and legal signed off"),
+                       "Budget approved – finance and legal signed off", "a short dash phrase is prose")
     }
 
     func testQueueOffersEachOnceAndRefreshesPerSource() {
@@ -146,15 +165,16 @@ final class SuggestionTests: XCTestCase {
     }
 
     private func item(id: String, mine: Bool, source: String = "agent_ask",
-                      recommendationAnswer: String? = "approve", recipients: [String] = []) -> CompanionTodoItem {
+                      recommendationAnswer: String? = "approve", recipients: [String] = [],
+                      answers: [String] = ["approve", "skip"], recommendation: String? = "All fit the brief.") -> CompanionTodoItem {
         CompanionTodoItem(
             id: id, label: "Creator Manager", title: "Approve 12 sample requests?", age: "1h",
-            clickPath: "/companion/app", answers: ["approve", "skip"], canAnswer: true, recipients: recipients,
+            clickPath: "/companion/app", answers: answers, canAnswer: true, recipients: recipients,
             canApprove: true, payloadPreview: nil,
             decision: CompanionDecisionTarget(id: id, version: "v1", sendVersion: nil),
             source: source, kind: "", statusReason: nil, needsYouBecause: nil, priorityBand: nil,
             priorityReasons: [], priorityTip: nil, expiresAt: nil, ageSeconds: 3600,
-            recommendation: "All fit the brief.", recommendationAnswer: recommendationAnswer,
+            recommendation: recommendation, recommendationAnswer: recommendationAnswer,
             assigneeLine: "", decidedReason: nil, itemLink: nil, shopName: "YUNJAC", resource: "r1", mine: mine)
     }
 }

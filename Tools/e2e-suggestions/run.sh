@@ -21,19 +21,20 @@ ctl() { curl -s -X POST -d "$2" "http://127.0.0.1:$PORT/__$1" >/dev/null; }
 wait_for() { i=0; while [ $i -lt "$2" ]; do if eval "$1"; then return 0; fi; sleep 2; i=$((i+2)); done; return 1; }
 
 if lsof -nP -iTCP:"$PORT" -sTCP:LISTEN >/dev/null 2>&1; then echo "port $PORT is in use"; exit 2; fi
+# It drives Ollie Dev and resets Ollie Dev's own answered list, so never take over a session someone is using.
+if pgrep -f "Ollie Dev.app/Contents/MacOS/Ollie Dev" >/dev/null; then echo "Ollie Dev is running; quit it first"; exit 2; fi
 make check-dev > "$WORK/build.log" 2>&1 || { echo "build failed: $WORK/build.log"; exit 2; }
 python3 -I Tools/e2e-suggestions/mock_companion.py "$PORT" "$LOG" > "$WORK/mock.log" 2>&1 &
 MOCK=$!
 trap 'kill $MOCK 2>/dev/null; pkill -f "Ollie Dev.app/Contents/MacOS/Ollie Dev"' EXIT
 sleep 1
-pkill -f "Ollie Dev.app/Contents/MacOS/Ollie Dev"; sleep 2
 "$DEV" --cli companion set --url "http://127.0.0.1:$PORT" >/dev/null
 "$DEV" --cli suggest off >/dev/null
 defaults delete com.outlandish.ollie.dev ollieSuggestionsHandled 2>/dev/null
 rm -f "$SNAP"; : > "$LOG"
 nohup "$DEV" --background-check > "$WORK/app.log" 2>&1 &
 wait_for '[ -f "$SNAP" ] && list | jq_py "sys.exit(0 if len(d[\"feed\"])==4 else 1)"' 120 \
-  && pass "offers exactly 4 ideas (draft, ask, hand-off, one-tap approval)" || fail "4 ideas offered: $(list | jq_py 'print([f["id"] for f in d["feed"]])')"
+  && pass "offers exactly 4 ideas (draft, ask, hand-off, an agent's suggested answer)" || fail "4 ideas offered: $(list | jq_py 'print([f["id"] for f in d["feed"]])')"
 list | jq_py 'ids=[f["id"] for f in d["feed"]]; sys.exit(0 if not any("ap-2" in i or "ap-3" in i for i in ids) else 1)' \
   && pass "an outside send and an item not yours are never offered" || fail "excluded approvals leaked"
 list | jq_py 'sys.exit(0 if any(f["text"]=="Want me to ask Amber Lee (account manager) to restock Glow Primer or choose another hero product?" for f in d["feed"]) else 1)' \
@@ -61,8 +62,9 @@ wait_for 'grep -q "samples_underused%3A2026-11-09/dismiss\", \"status\": 200, \"
   && pass "Not now on a hand-off sends dismiss" || fail "dismiss"
 
 "$DEV" --cli suggest answer "approval:ap-1" yes >/dev/null
-wait_for 'grep -q "\"path\": \"/api/oo/approvals/answer\", \"status\": 200, \"xsrf_ok\": true, \"body\": {\"answer\": \"approve\", \"items\": \[{\"id\": \"ap-1\"" "$LOG" || grep -q "approvals/answer\", \"status\": 200, \"xsrf_ok\": true" "$LOG"' 20 \
-  && pass "Yes on a one-tap approval approves only that item" || fail "approval answer"
+wait_for 'python3 -I -c "import json,sys; sys.exit(0 if any(e[\"path\"]==\"/api/oo/approvals/answer\" and e[\"status\"]==200 and e[\"xsrf_ok\"] and e[\"body\"].get(\"answer\")==\"change\" and e[\"body\"].get(\"text\")==\"Use the spring brief\" and [i[\"id\"] for i in e[\"body\"][\"items\"]]==[\"ap-1\"] for e in map(json.loads, open(\"$LOG\"))) else 1)"' 20 \
+  && curl -s "http://127.0.0.1:$PORT/__state" | jq_py 'sys.exit(0 if [a["id"] for a in d["approvals"]]==["ap-2","ap-3"] else 1)' \
+  && pass "Yes on an agent's suggested answer sends change + its text for that item only, and the server took it" || fail "approval answer"
 
 "$DEV" --cli suggest refresh >/dev/null; sleep 20
 "$DEV" --cli suggest answer "sm:res-sm-1:draft" yes >/dev/null

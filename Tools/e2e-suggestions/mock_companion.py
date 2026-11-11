@@ -14,10 +14,11 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 PORT = int(sys.argv[1]) if len(sys.argv) > 1 else 8765
 LOG = sys.argv[2] if len(sys.argv) > 2 else "/tmp/ollie-e2e/requests.jsonl"
-TOKEN = "e2e-xsrf-token-123"
+# Laravel's real cookie value is URL-encoded base64-ish JSON; keep characters that must be decoded.
+TOKEN = "eyJpdiI6IkUyRSJ9+/=="
 SM_SHOP = "res-sm-1"
 OTHER = "res-plain-2"
-LOCK = threading.Lock()
+LOCK = threading.RLock()
 
 INITIAL = {
     "strategy": {
@@ -36,9 +37,10 @@ INITIAL = {
         ]},
     },
     "approvals": [
-        {"id": "ap-1", "source": "agent_ask", "kind": "sample_batch", "question": "Approve 12 sample requests that fit the brief?",
-         "agent": {"label": "Creator Manager"}, "version": "v1", "can_answer": True, "answers": ["approve", "skip"],
-         "recommendation": {"text": "All 12 fit the brief.", "value": "approve"}, "mine": True, "age_seconds": 3600},
+        # The real agent-ask shape (AgentOpenWorkSource): answers change/skip, recommendation text only, no value.
+        {"id": "ap-1", "source": "agent_ask", "kind": "brief_value", "question": "Which brief should this week's outreach use?",
+         "agent": {"label": "Creator Manager"}, "version": "v1", "can_answer": True, "answers": ["change", "skip"],
+         "recommendation": {"text": "Use the spring brief"}, "mine": True, "age_seconds": 3600},
         {"id": "ap-2", "source": "send_approval", "kind": "creator_message", "question": "Send this message to @creator?",
          "agent": {"label": "Creator Manager"}, "version": "v1", "send_version": "s1", "can_answer": True, "answers": ["approve", "skip"],
          "recommendation": {"text": "Looks right.", "value": "approve"}, "mine": True,
@@ -92,14 +94,18 @@ class Handler(BaseHTTPRequestHandler):
         payload = (html if html is not None else json.dumps(obj)).encode()
         self.send_response(status)
         self.send_header("Content-Type", "text/html" if html is not None else "application/json")
-        self.send_header("Set-Cookie", f"XSRF-TOKEN={TOKEN}; Path=/")
+        self.send_header("Set-Cookie", f"XSRF-TOKEN={urllib.parse.quote(TOKEN, safe='')}; Path=/")
         self.send_header("Cache-Control", "no-store")
         self.send_header("Content-Length", str(len(payload)))
         self.end_headers()
         self.wfile.write(payload)
 
     def do_GET(self):
-        path = urllib.parse.urlparse(self.path).path
+        with LOCK:
+            return self._get()
+
+    def _get(self):
+        path = urllib.parse.unquote(urllib.parse.urlparse(self.path).path)
         if path.startswith("/api/") and not AUTH["ok"]:
             return self._send(401, {"message": "Unauthenticated."})
         if path == "/api/oo/portfolio":
@@ -117,6 +123,10 @@ class Handler(BaseHTTPRequestHandler):
         return self._send(200, html="<!doctype html><title>E2E Companion</title><p>ok</p>")
 
     def do_POST(self):
+        with LOCK:
+            return self._post()
+
+    def _post(self):
         path = urllib.parse.unquote(urllib.parse.urlparse(self.path).path)
         raw = self.rfile.read(int(self.headers.get("Content-Length") or 0)) or b"{}"
         try:
@@ -144,8 +154,9 @@ class Handler(BaseHTTPRequestHandler):
         base = f"/api/oo/shops/{SM_SHOP}/strategy-manager"
         s = STATE["strategy"]
         if path == base + "/statements":
-            if s["draft"] is None or body.get("text") != s["draft"]["apply_text"]:
-                return self._send(422, {"message": "Unexpected statement text."}, body_in=body)
+            # Like the real route: any valid text applies; freshness is the client's job.
+            if not isinstance(body.get("text"), str) or len(body["text"]) < 3:
+                return self._send(422, {"message": "The text field is required."}, body_in=body)
             s["statement"] = {"text": body["text"]}
             s["draft"] = None
             return self._send(201, s, body_in=body)
@@ -163,9 +174,16 @@ class Handler(BaseHTTPRequestHandler):
                 rec["dismissed"] = True
             return self._send(200, s, body_in=body)
         if path == "/api/oo/approvals/answer":
-            ids = [i.get("id") for i in body.get("items", [])]
-            STATE["approvals"] = [a for a in STATE["approvals"] if a["id"] not in ids]
-            return self._send(200, {"results": [{"id": i, "status": "ok"} for i in ids]}, body_in=body)
+            results = []
+            for row in body.get("items", []):
+                item = next((a for a in STATE["approvals"] if a["id"] == row.get("id")), None)
+                if item is None or item.get("version") != row.get("version") or item.get("send_version") != row.get("send_version") \
+                        or body.get("answer") not in item.get("answers", []):
+                    results.append({"id": row.get("id"), "status": "stale"})
+                    continue
+                STATE["approvals"].remove(item)
+                results.append({"id": row.get("id"), "status": "ok"})
+            return self._send(200, {"results": results}, body_in=body)
         return self._send(404, {"message": "not mocked"}, body_in=body)
 
 

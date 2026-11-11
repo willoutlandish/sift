@@ -8,8 +8,9 @@ struct OllieSuggestion: Equatable, Identifiable {
         case post(path: String, body: [String: String])
         /// Apply the month's proposed strategy, re-reading it first so a stale draft is never sent.
         case applyDraft(resource: String, applyText: String)
-        /// Approve one item from Waiting on you.
-        case approve(CompanionTodoItem)
+        /// Answer one item from Waiting on you, as its one-tap button does: `approve`, or `change`
+        /// with the agent's own suggested text ("Take this recommendation").
+        case answer(CompanionTodoItem, answer: String, text: String?)
         /// Local preview only: nothing is read or written.
         case demo(String)
     }
@@ -90,7 +91,7 @@ enum OllieSuggestions {
             guard let key = nonEmpty(rec.key), let title = nonEmpty(rec.title), rec.dismissed != true else { continue }
             // A role name ("account manager") reads with "the"; a person's name does not.
             let named = nonEmpty(rec.to_name) ?? "team"
-            let to = named.first?.isLowercase == true ? "the " + named : named
+            let to = named.first?.isLowercase == true && !named.hasPrefix("the ") ? "the " + named : named
             // Already with someone (a person's Yes, or later the agent's own record of it): not a new idea.
             // No "handed off without your OK" alarm: the reader keeps only the newest row per key, so an
             // approved hand-off the agent re-records would look unapproved, and its Stop would undo your Yes.
@@ -115,20 +116,34 @@ enum OllieSuggestions {
 
     // MARK: Any agent's recommended approval (Creator Manager, Ads Manager, …)
 
-    /// Items an agent recommends approving and that you can approve in one tap. Sends to
-    /// people outside are left to the panel, where the full message and recipient show.
+    /// Items waiting on you where the agent has a recommendation you can take in one tap: an
+    /// `approve` it recommends, or (the common case: agent asks and questions) its suggested
+    /// answer, taken as `change` with that text. Sends to people outside stay in the panel.
     /// Sources whose approve sends to someone outside (ControlRoomAnswerService::apply).
     static let outsideSendSources: Set<String> = ["send_approval", "creator_dm_reply", "incentive"]
 
     static func approvals(_ snapshot: CompanionTodoSnapshot) -> [OllieSuggestion] {
         snapshot.orderedItems.compactMap { item in
-            guard item.mine, item.recommendationAnswer == "approve", item.canApprove,
-                  item.recipients.isEmpty, item.payloadPreview == nil,
+            guard item.mine, item.recipients.isEmpty, item.payloadPreview == nil,
                   !outsideSendSources.contains(item.source) else { return nil }
-            return OllieSuggestion(
-                id: "approval:\(item.id):\(item.decision?.version ?? "")", agent: item.label, shop: item.shopName,
-                text: item.title, detail: nonEmpty(item.recommendation) ?? item.reason,
-                yes: .approve(item), openPath: item.itemLink ?? item.reviewPath, doneText: "Approved")
+            let id = "approval:\(item.id):\(item.decision?.version ?? "")"
+            switch item.recommendationAnswer {
+            case "approve" where item.canApprove:
+                return OllieSuggestion(
+                    id: id, agent: item.label, shop: item.shopName,
+                    text: item.title, detail: nonEmpty(item.recommendation) ?? item.reason,
+                    yes: .answer(item, answer: "approve", text: nil),
+                    openPath: item.itemLink ?? item.reviewPath, doneText: "Approved")
+            case "change":
+                guard let suggested = nonEmpty(item.recommendation) else { return nil }
+                return OllieSuggestion(
+                    id: id, agent: item.label, shop: item.shopName,
+                    text: item.title, detail: "I'd go with: " + suggested,
+                    yesLabel: "Yes, use that", yes: .answer(item, answer: "change", text: suggested),
+                    openPath: item.itemLink ?? item.reviewPath, doneText: "Sent your answer")
+            default:
+                return nil
+            }
         }
     }
 
@@ -168,9 +183,15 @@ enum OllieSuggestions {
     /// Shop listing titles run to a paragraph ("Primer (1.35 fl oz) – Silicone-Free Grip …");
     /// keep the name, drop the size and the sales copy after a dash.
     static func shortProductNames(_ text: String) -> String {
-        var out = text.replacingOccurrences(
-            of: #"\s*(\([^)]*\))?\s+[–—|]\s+[^.?]*?(?=\s+or\s|\s+is\s|\s+and\s|[.?]|$)"#,
-            with: "", options: .regularExpression)
+        // Only a long tail is listing copy; a short one ("approved – finance") is prose and stays.
+        var out = text
+        let pattern = #"\s*(\([^)]*\))?\s+[–—|-]\s+[^.?]*?(?=\s+or\s|\s+is\s|\s+and\s|[.?]|$)"#
+        if let regex = try? NSRegularExpression(pattern: pattern) {
+            for match in regex.matches(in: out, range: NSRange(out.startIndex..., in: out)).reversed()
+            where match.range.length >= 24 {
+                if let range = Range(match.range, in: out) { out.replaceSubrange(range, with: "") }
+            }
+        }
         out = out.replacingOccurrences(of: #"\s{2,}"#, with: " ", options: .regularExpression)
         return out.trimmingCharacters(in: .whitespaces)
     }
@@ -249,6 +270,8 @@ final class OllieSuggestionCenter: ObservableObject {
     nonisolated static var watched: [String] { UserDefaults.standard.stringArray(forKey: watchKey) ?? [] }
     /// What the last read of each shop found, for `ollie suggest list`.
     private var strategyReads: [String: [String: Any]] = [:]
+    /// What the last approvals read held, so an empty feed is explained, not a bare zero.
+    private var approvalStats: [String: Any] = [:]
 
     weak var store: Store?
     private var queue: OllieSuggestionQueue
@@ -292,6 +315,14 @@ final class OllieSuggestionCenter: ObservableObject {
     }
 
     func monitorDidPoll(snapshot: CompanionTodoSnapshot, shops: [CompanionShopPace]) async {
+        let items = snapshot.orderedItems
+        let mine = items.filter(\.mine)
+        approvalStats = [
+            "waiting": items.count, "mine": mine.count,
+            "mine_with_agent_suggestion": mine.filter { ["approve", "change"].contains($0.recommendationAnswer ?? "") }.count,
+            "mine_outside_sends": mine.filter { OllieSuggestions.outsideSendSources.contains($0.source) || !$0.recipients.isEmpty }.count,
+            "by_source": Dictionary(grouping: mine, by: \.source).mapValues(\.count),
+        ]
         offer(OllieSuggestions.approvals(snapshot), source: "approval:")
         // Ideas already in hand go out now; the shop reads below can take a while.
         showNextIfIdle()
@@ -434,7 +465,7 @@ final class OllieSuggestionCenter: ObservableObject {
 
     func open(_ suggestion: OllieSuggestion) {
         guard let store else { return }
-        if case .approve(let item) = suggestion.yes { store.openApprovalItem(item); return }
+        if case .answer(let item, _, _) = suggestion.yes { store.openApprovalItem(item); return }
         if let path = suggestion.openPath { store.openCompanion(path: path) }
     }
 
@@ -471,6 +502,7 @@ final class OllieSuggestionCenter: ObservableObject {
             "failures": failures,
             "last_answer_error": lastAnswerError ?? NSNull(),
             "strategy_reads": strategyReads,
+            "approvals_read": approvalStats,
             "at": ISO8601DateFormatter().string(from: Date()),
         ]
         guard let data = try? JSONSerialization.data(withJSONObject: object, options: [.prettyPrinted, .sortedKeys]) else { return }
@@ -511,8 +543,8 @@ final class OllieSuggestionCenter: ObservableObject {
                 return (false, "That proposal changed or was already set. Open it to see the latest.")
             }
             return await perform(.post(path: OllieSuggestions.strategyPath(resource: resource, "/statements"), body: ["text": applyText]))
-        case .approve(let item):
-            let outcome = await CompanionApprovalsActions.shared.submit(item: item, answer: "approve")
+        case .answer(let item, let answer, let text):
+            let outcome = await CompanionApprovalsActions.shared.submit(item: item, answer: answer, text: text)
             return (outcome.remove, outcome.message)
         case .post(let path, let body):
             let monitor = CompanionApprovalsMonitor.shared

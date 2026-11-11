@@ -320,7 +320,7 @@ struct SuggestionBubbleView: View {
     }
 
     private var isApproval: Bool {
-        if case .approve = suggestion.yes { return true }
+        if case .answer = suggestion.yes { return true }
         return false
     }
 }
