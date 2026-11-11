@@ -12,6 +12,8 @@ struct OllieSuggestion: Equatable, Identifiable {
         case approve(CompanionTodoItem)
         /// Local preview only: nothing is read or written.
         case demo(String)
+        /// Nothing to send: you've seen it and it can carry on.
+        case acknowledge
     }
 
     let id: String
@@ -25,6 +27,10 @@ struct OllieSuggestion: Equatable, Identifiable {
     var notNow: Action? = nil
     var openPath: String? = nil
     var doneText = "Done"
+    var notNowLabel = "Not now"
+    var notNowDoneText = "Not now"
+    /// Something an agent already did on its own (a hand-off), not a proposal waiting on you.
+    var isNotice = false
 
     var byline: String { shop.isEmpty ? agent : agent + " · " + shop }
 }
@@ -47,7 +53,11 @@ enum OllieSuggestions {
             let handed: Handed?
         }
         /// Any non-null hand-off means it is already with someone.
-        struct Handed: Decodable {}
+        struct Handed: Decodable {
+            let status: String?
+            let via: String?
+            let handoff_id: String?
+        }
         let agent: Agent?
         let period: String?
         let draft: Draft?
@@ -83,9 +93,22 @@ enum OllieSuggestions {
                 openPath: "/companion/app", doneText: "Set as this month's strategy"))
         }
         for rec in state.check?.recommendations ?? [] {
-            guard let key = nonEmpty(rec.key), let title = nonEmpty(rec.title),
-                  rec.dismissed != true, rec.handed == nil else { continue }
+            guard let key = nonEmpty(rec.key), let title = nonEmpty(rec.title), rec.dismissed != true else { continue }
             let to = nonEmpty(rec.to_name) ?? "the team"
+            if let handed = rec.handed {
+                // The agent handed it on by itself (a person's Apply is recorded as staff:…): say so, with Stop.
+                guard handed.via == "handoff", ["open", "claimed"].contains(handed.status ?? "open"),
+                      let handoff = nonEmpty(handed.handoff_id), !handoff.hasPrefix("staff:") else { continue }
+                out.append(OllieSuggestion(
+                    id: "sm:\(resource):handoff:\(key):\(handoff)", agent: agent, shop: shop,
+                    text: "I've handed this to \(to): " + lowerFirst(title) + ".", detail: nonEmpty(rec.reason),
+                    yesLabel: "Keep going", yes: .acknowledge,
+                    notNow: .post(path: strategyPath(resource: resource, "/handoffs/stop"), body: ["key": key]),
+                    openPath: "/companion/app", doneText: "\(to) carries on",
+                    notNowLabel: "Stop", notNowDoneText: "Stopped. It's withdrawn on the agent's next run.",
+                    isNotice: true))
+                continue
+            }
             out.append(OllieSuggestion(
                 id: "sm:\(resource):rec:\(key)", agent: agent, shop: shop,
                 text: "I think we should " + lowerFirst(title) + ".", detail: nonEmpty(rec.reason),
@@ -125,6 +148,14 @@ enum OllieSuggestions {
                 text: "12 creators asked for samples overnight and all fit the brief. Want me to approve them?",
                 detail: "Each one is above 5k followers with a beauty audience; 3 have posted for you before.",
                 yes: .demo("creator"), doneText: "Approved 12 samples (preview, nothing sent)")
+        case "handoff", "stop":
+            return OllieSuggestion(
+                id: "demo:handoff:\(UUID().uuidString)", agent: "Strategy Manager", shop: "YUNJAC",
+                text: "I've handed this to Creator Manager: send 20 more samples this week.",
+                detail: "Samples are 8 of 28 this week; at this rate November ends 40% under the video target.",
+                yesLabel: "Keep going", yes: .demo("handoff"), notNow: .demo("stop"),
+                doneText: "Creator Manager carries on (preview)", notNowLabel: "Stop",
+                notNowDoneText: "Stopped (preview, nothing sent)", isNotice: true)
         default:
             return OllieSuggestion(
                 id: "demo:strategy:\(UUID().uuidString)", agent: "Strategy Manager", shop: "YUNJAC",
@@ -315,7 +346,7 @@ final class OllieSuggestionCenter: ObservableObject {
 
     /// The preview build (`--demo`) starts with one of each in the Management chat.
     func seedDemo() {
-        setLatest([OllieSuggestions.demo("strategy"), OllieSuggestions.demo("creator")], source: "demo:")
+        setLatest([OllieSuggestions.demo("strategy"), OllieSuggestions.demo("handoff"), OllieSuggestions.demo("creator")], source: "demo:")
     }
 
     /// Yes or Not now from the Management chat; a bubble about the same thing goes away.
@@ -353,8 +384,8 @@ final class OllieSuggestionCenter: ObservableObject {
         }
         failures[suggestion.id] = nil
         markHandled(suggestion.id)
-        record(suggestion, yes: false, outcome: "Not now")
-        return (true, "Not now")
+        record(suggestion, yes: false, outcome: suggestion.notNowDoneText)
+        return (true, suggestion.notNowDoneText)
     }
 
     func yes(_ suggestion: OllieSuggestion) async -> (ok: Bool, message: String) {
@@ -369,7 +400,10 @@ final class OllieSuggestionCenter: ObservableObject {
         }
         markHandled(suggestion.id)
         record(suggestion, yes: true, outcome: suggestion.doneText)
-        if case .demo = suggestion.yes {} else { CompanionApprovalsMonitor.shared.refresh() }
+        switch suggestion.yes {
+        case .demo, .acknowledge: break
+        default: CompanionApprovalsMonitor.shared.refresh()
+        }
         return (true, suggestion.doneText)
     }
 
@@ -416,6 +450,8 @@ final class OllieSuggestionCenter: ObservableObject {
         switch action {
         case .demo:
             try? await Task.sleep(nanoseconds: 700_000_000)
+            return (true, nil)
+        case .acknowledge:
             return (true, nil)
         case .applyDraft(let resource, let applyText):
             // As the in-app card does: re-read the draft and send only if it is still the one shown.

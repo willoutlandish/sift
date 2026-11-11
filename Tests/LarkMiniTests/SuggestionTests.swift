@@ -37,6 +37,30 @@ final class SuggestionTests: XCTestCase {
         XCTAssertEqual(list[2].text, "I think we should GMV is behind.", "acronyms keep their case")
     }
 
+    func testTheAgentsOwnHandOffsComeWithStopAndAPersonsApplyDoesNot() {
+        let body = #"""
+        {"agent":{"name":"Strategy Manager"},"period":"2026-11-01","draft":null,
+         "check":{"recommendations":[
+           {"key":"samples:2026-11","title":"Send 20 more samples this week","reason":"8 of 28.","to_name":"Creator Manager",
+            "dismissed":false,"handed":{"status":"open","via":"handoff","handoff_id":"h-42","to_role":"creator-manager"}},
+           {"key":"ads:2026-11","title":"Raise the ad budget","to_name":"Ads Manager",
+            "dismissed":false,"handed":{"status":"open","via":"handoff","handoff_id":"staff:abc"}},
+           {"key":"done:2026-11","title":"Old","dismissed":false,"handed":{"status":"done","via":"handoff","handoff_id":"h-1"}},
+           {"key":"stopping:2026-11","title":"Stopping","dismissed":false,"handed":{"status":"stop_requested","via":"handoff","handoff_id":"h-2"}},
+           {"key":"ask:2026-11","title":"Ask","dismissed":false,"handed":{"status":"open","via":"ask","handoff_id":"a-1"}}
+         ]}}
+        """#
+        let list = OllieSuggestions.strategyManager(body, resource: "r1", shop: "YUNJAC")
+        XCTAssertEqual(list.map(\.id), ["sm:r1:handoff:samples:2026-11:h-42"],
+                       "only the agent's own open hand-off; a person's Apply, finished, stopping and asks are not news")
+        let notice = list[0]
+        XCTAssertTrue(notice.isNotice)
+        XCTAssertEqual(notice.text, "I've handed this to Creator Manager: send 20 more samples this week.")
+        XCTAssertEqual(notice.yes, .acknowledge)
+        XCTAssertEqual(notice.notNowLabel, "Stop")
+        XCTAssertEqual(notice.notNow, .post(path: "/api/oo/shops/r1/strategy-manager/handoffs/stop", body: ["key": "samples:2026-11"]))
+    }
+
     func testNoStrategyManagerMeansNoSuggestions() {
         XCTAssertTrue(OllieSuggestions.strategyManager(#"{"agent":null,"period":"2026-11-01","draft":{"display":"x","apply_text":"y"}}"#,
                                                         resource: "r", shop: "S").isEmpty)
@@ -128,11 +152,14 @@ final class SuggestionFeedTests: XCTestCase {
     func testManagementFeedShowsOpenIdeasAndAnswersMoveToHistory() async {
         let center = OllieSuggestionCenter()
         center.seedDemo()
-        XCTAssertEqual(center.feed.map(\.agent), ["Strategy Manager", "Creator Manager"])
+        XCTAssertEqual(center.feed.map(\.agent), ["Strategy Manager", "Strategy Manager", "Creator Manager"])
+        XCTAssertEqual(center.feed.map(\.isNotice), [false, true, false])
         let first = center.feed[0]
         await center.notNow(first)
-        XCTAssertEqual(center.feed.map(\.agent), ["Creator Manager"])
+        XCTAssertEqual(center.feed.map(\.agent), ["Strategy Manager", "Creator Manager"])
         XCTAssertEqual(center.history.map(\.outcome), ["Not now"])
+        await center.notNow(center.feed[0])
+        XCTAssertEqual(center.history.last?.outcome, "Stopped (preview, nothing sent)", "a Stop says what it did")
         let result = await center.yes(center.feed[0])
         XCTAssertTrue(result.ok)
         XCTAssertTrue(center.feed.isEmpty)
@@ -164,10 +191,12 @@ final class SuggestionFeedTests: XCTestCase {
             .frame(width: 360, height: 230).background(Color(white: 0.3))
         let chat = ShellView().environmentObject(store).frame(width: 400, height: 640).background(SiftStyle.surface)
         store.showManagement()
+        let notice = SuggestionBubbleView(suggestion: OllieSuggestions.demo("handoff")).environmentObject(store)
+            .frame(width: 360, height: 230).background(Color(white: 0.3))
         let rows = VStack(alignment: .leading, spacing: 14) {
             ForEach(OllieSuggestionCenter.shared.feed) { SuggestionMessage(suggestion: $0) }
         }.padding(16).frame(width: 340).background(SiftStyle.surface).environmentObject(store)
-        for (name, view) in [("bubble", AnyView(bubble)), ("management", AnyView(chat)), ("rows", AnyView(rows))] {
+        for (name, view) in [("bubble", AnyView(bubble)), ("management", AnyView(chat)), ("rows", AnyView(rows)), ("notice", AnyView(notice))] {
             let renderer = ImageRenderer(content: view.environment(\.colorScheme, .dark))
             renderer.scale = 2
             let image = try XCTUnwrap(renderer.nsImage)

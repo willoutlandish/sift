@@ -91,7 +91,8 @@ struct SuggestionMessage: View {
         HStack(alignment: .top, spacing: 10) {
             FaceIcon(size: 28)
             VStack(alignment: .leading, spacing: 6) {
-                Text(suggestion.byline).font(.system(size: 11, weight: .semibold)).foregroundStyle(SiftStyle.green)
+                Text((suggestion.isNotice ? "Done for you · " : "") + suggestion.byline)
+                    .font(.system(size: 11, weight: .semibold)).foregroundStyle(SiftStyle.green)
                 Text(suggestion.text).font(.system(size: 13, weight: .medium))
                     .fixedSize(horizontal: false, vertical: true)
                 if let detail = suggestion.detail {
@@ -114,7 +115,7 @@ struct SuggestionMessage: View {
                         }
                         .buttonStyle(.plain)
                         Button { center.answerFromFeed(suggestion, yes: false) } label: {
-                            Text("Not now").font(.system(size: 12, weight: .medium))
+                            Text(suggestion.notNowLabel).font(.system(size: 12, weight: .medium))
                                 .padding(.horizontal, 12).padding(.vertical, 6)
                                 .background(SiftStyle.raised, in: Capsule())
                         }
@@ -153,7 +154,7 @@ struct AnsweredRow: View {
             }
             HStack {
                 Spacer(minLength: 40)
-                Label(answered.yes ? answered.outcome : "Not now", systemImage: answered.yes ? "checkmark" : "clock")
+                Label(answered.outcome, systemImage: answered.yes ? "checkmark" : (answered.suggestion.isNotice ? "hand.raised" : "clock"))
                     .font(.system(size: 12, weight: .medium))
                     .padding(.horizontal, 10).padding(.vertical, 6)
                     .background((answered.yes ? SiftStyle.green.opacity(0.22) : SiftStyle.raised), in: Capsule())

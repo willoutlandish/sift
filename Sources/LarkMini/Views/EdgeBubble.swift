@@ -232,7 +232,8 @@ struct SuggestionBubbleView: View {
                 HStack(spacing: 8) {
                     FaceIcon(size: 26)
                     VStack(alignment: .leading, spacing: 1) {
-                        Text("Ollie has an idea").font(.system(size: 11, weight: .semibold)).foregroundStyle(SiftStyle.green)
+                        Text(suggestion.isNotice ? "Done for you" : "Ollie has an idea")
+                            .font(.system(size: 11, weight: .semibold)).foregroundStyle(SiftStyle.green)
                         Text(suggestion.byline).font(.system(size: 11)).foregroundStyle(SiftStyle.secondary).lineLimit(1)
                     }
                     Spacer(minLength: 0)
@@ -241,8 +242,8 @@ struct SuggestionBubbleView: View {
                             .foregroundStyle(SiftStyle.muted).frame(width: 20, height: 20)
                     }
                     .buttonStyle(.plain)
-                    .help(store.suggestionStatus == .idle ? "Not now" : "Close")
-                    .accessibilityLabel(store.suggestionStatus == .idle ? "Not now" : "Close")
+                    .help(store.suggestionStatus == .idle ? suggestion.notNowLabel : "Close")
+                    .accessibilityLabel(store.suggestionStatus == .idle ? suggestion.notNowLabel : "Close")
                 }
                 Text(suggestion.text).font(.system(size: 13, weight: .medium))
                     .lineLimit(3).fixedSize(horizontal: false, vertical: true)
@@ -284,7 +285,7 @@ struct SuggestionBubbleView: View {
                 }
                 .buttonStyle(.plain)
                 Button { store.answerSuggestion(yes: false) } label: {
-                    Text("Not now").font(.system(size: 12, weight: .medium))
+                    Text(suggestion.notNowLabel).font(.system(size: 12, weight: .medium))
                         .padding(.horizontal, 12).padding(.vertical, 6)
                         .background(SiftStyle.raised, in: Capsule())
                 }

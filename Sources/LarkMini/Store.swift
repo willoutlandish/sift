@@ -1279,7 +1279,11 @@ final class Store: ObservableObject {
             Task { [weak self] in
                 let result = await OllieSuggestionCenter.shared.notNow(suggestion)
                 guard let self, self.bubble?.suggestion?.id == suggestion.id else { return }
-                if result.ok { self.dismissBubble() } else {
+                if result.ok, suggestion.isNotice {
+                    // A Stop says what happens next before it fades.
+                    self.suggestionStatus = .done(result.message)
+                    self.expireBubble(after: 4)
+                } else if result.ok { self.dismissBubble() } else {
                     self.suggestionStatus = .failed(result.message)
                     self.expireBubble(after: 8)
                 }
