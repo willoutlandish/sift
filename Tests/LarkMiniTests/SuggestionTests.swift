@@ -74,6 +74,9 @@ final class SuggestionTests: XCTestCase {
         queue.markHandled(a.id)
         queue.offer([a], source: "sm:r1:")
         XCTAssertEqual(queue.pending.map(\.id), [c.id], "answered or not-now never comes back")
+        queue.offer([b], source: "sm:r1:")
+        queue.drop(source: "sm:r1:")
+        XCTAssertEqual(queue.pending.map(\.id), [c.id], "a shop that is gone leaves the line")
     }
 
     func testSuggestionStepsAsideForAChatInsteadOfMerging() {

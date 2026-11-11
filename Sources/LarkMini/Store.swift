@@ -1230,9 +1230,9 @@ final class Store: ObservableObject {
         if hovering {
             holdCap = Task { [weak self] in
                 try? await Task.sleep(nanoseconds: 120_000_000_000)
-                guard !Task.isCancelled, let self, self.bubbleHeld else { return }
+                guard !Task.isCancelled, let self, self.bubbleHeld, self.suggestionStatus != .working else { return }
+                // Move on to the next idea; this one stays in the Management chat.
                 self.bubbleHeld = false
-                self.setAsideSuggestion()
                 self.dismissBubble()
             }
         } else if bubble != nil { expireBubble(after: 3) }
@@ -1270,8 +1270,20 @@ final class Store: ObservableObject {
         // After a Yes (done or failed) the close button only closes; it never undoes the answer.
         guard suggestionStatus == .idle else { dismissBubble(); return }
         guard yes else {
-            Task { await OllieSuggestionCenter.shared.notNow(suggestion) }
-            dismissBubble()
+            guard suggestion.notNow != nil else {
+                Task { await OllieSuggestionCenter.shared.notNow(suggestion) }
+                dismissBubble()
+                return
+            }
+            suggestionStatus = .working
+            Task { [weak self] in
+                let result = await OllieSuggestionCenter.shared.notNow(suggestion)
+                guard let self, self.bubble?.suggestion?.id == suggestion.id else { return }
+                if result.ok { self.dismissBubble() } else {
+                    self.suggestionStatus = .failed(result.message)
+                    self.expireBubble(after: 8)
+                }
+            }
             return
         }
         suggestionStatus = .working

@@ -185,6 +185,11 @@ struct OllieSuggestionQueue {
         handled.insert(id)
         pending.removeAll { $0.id == id }
     }
+
+    /// A source that is gone (a shop whose Strategy Manager went off) leaves the line too.
+    mutating func drop(source: String) {
+        pending.removeAll { $0.id.hasPrefix(source) }
+    }
 }
 
 /// Gathers suggestions after each Companion poll and offers them, one at a time, from the head.
@@ -214,6 +219,8 @@ final class OllieSuggestionCenter: ObservableObject {
     private var strategyFetchedAt: Date?
     private var strategyBusy = false
     private var strategyCursor = 0
+    /// Bumped by reset(), so a read still in flight from the last session lands nowhere.
+    private var generation = 0
     /// Most recent last, so the 500 kept are the newest answers.
     private var handledOrder: [String]
     /// The latest read from each source; the Management chat shows what is still open.
@@ -239,6 +246,8 @@ final class OllieSuggestionCenter: ObservableObject {
         failures = [:]
         strategyFetchedAt = nil
         strategyCursor = 0
+        generation += 1
+        strategyBusy = false
         queue = OllieSuggestionQueue(handled: Set(handledOrder))
         rebuildFeed()
         if store?.bubble?.suggestion != nil { store?.dismissBubble() }
@@ -270,11 +279,15 @@ final class OllieSuggestionCenter: ObservableObject {
     }
 
     func refreshStrategy(_ shops: [CompanionShopPace]) async {
+        let session = generation
         strategyBusy = true
-        defer { strategyBusy = false; strategyFetchedAt = Date() }
+        defer { if session == generation { strategyBusy = false; strategyFetchedAt = Date() } }
         let pool = Self.strategyShops(shops)
         // A shop whose Strategy Manager went off takes its old ideas with it.
         let live = Set(pool.map { "sm:\($0.resource):" })
+        for gone in latest.map(\.source) where gone.hasPrefix("sm:") && !live.contains(gone) {
+            queue.drop(source: gone)
+        }
         let before = latest.count
         latest.removeAll { $0.source.hasPrefix("sm:") && !live.contains($0.source) }
         if latest.count != before { rebuildFeed() }
@@ -282,7 +295,8 @@ final class OllieSuggestionCenter: ObservableObject {
         strategyCursor = pool.isEmpty ? 0 : (strategyCursor + batch.count) % pool.count
         for shop in batch {
             guard let reply = await CompanionApprovalsMonitor.shared.fetch(path: OllieSuggestions.strategyPath(resource: shop.resource)),
-                  reply.status == 200 else { continue }
+                  session == generation else { return }
+            guard reply.status == 200 else { continue }
             offer(OllieSuggestions.strategyManager(reply.body, resource: shop.resource, shop: shop.name),
                   source: "sm:\(shop.resource):")
         }
@@ -325,19 +339,22 @@ final class OllieSuggestionCenter: ObservableObject {
     }
 
     /// Remembered only once the source agrees, so a failed dismiss never hides an open idea.
-    func notNow(_ suggestion: OllieSuggestion) async {
+    @discardableResult
+    func notNow(_ suggestion: OllieSuggestion) async -> (ok: Bool, message: String) {
         if let action = suggestion.notNow {
             working.insert(suggestion.id)
             let result = await perform(action)
             working.remove(suggestion.id)
             guard result.ok else {
-                failures[suggestion.id] = result.message ?? "Couldn't set that aside."
-                return
+                let message = result.message ?? "Couldn't set that aside."
+                failures[suggestion.id] = message
+                return (false, message)
             }
         }
         failures[suggestion.id] = nil
         markHandled(suggestion.id)
         record(suggestion, yes: false, outcome: "Not now")
+        return (true, "Not now")
     }
 
     func yes(_ suggestion: OllieSuggestion) async -> (ok: Bool, message: String) {
