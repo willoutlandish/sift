@@ -179,6 +179,7 @@ struct CompanionTodoItem: Identifiable, Equatable {
     let shopName: String
     let resource: String
     var categoryName: String? = nil
+    var mine = false
 
     // Staff decisions such as budgets are not the shop's client/send approval inbox.
     var reviewPath: String { CompanionApprovals.reviewPath(source: source, resource: resource) }
@@ -349,7 +350,8 @@ enum CompanionTodos {
                         decidedReason: item.decided_by?.reason,
                         itemLink: CompanionApprovalEligibility.safeHref(item.link),
                         shopName: shopName ?? shop.name,
-                        resource: resource ?? shop.resource, categoryName: nonEmpty(service.label))
+                        resource: resource ?? shop.resource, categoryName: nonEmpty(service.label),
+                        mine: item.mine ?? false)
                     items.append((items.count, todo))
                 }
             }
@@ -781,6 +783,8 @@ final class CompanionApprovalsMonitor: NSObject, WKNavigationDelegate, Observabl
                 id: "summary-\(Int(Date().timeIntervalSince1970))", path: CompanionApprovals.clickPath(resource: nil))
         }
         for approval in plan.singles { await notify(approval) }
+        let shops = Array(pace.values)
+        Task { await OllieSuggestionCenter.shared.monitorDidPoll(snapshot: snapshot, shops: shops) }
         schedule(after: 60)
     }
 

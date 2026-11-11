@@ -98,6 +98,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         queryCenter.addObserver(self, selector: #selector(companionDragMapNote(_:)),
                                 name: .companionDragMapRequest, object: nil,
                                 suspensionBehavior: .deliverImmediately)
+        queryCenter.addObserver(self, selector: #selector(suggestionNote(_:)),
+                                name: .suggestionRequest, object: nil,
+                                suspensionBehavior: .deliverImmediately)
         queryCenter.addObserver(self, selector: #selector(settingsNote(_:)),
                                 name: .appSettingsChanged, object: nil,
                                 suspensionBehavior: .deliverImmediately)
@@ -223,6 +226,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     @objc nonisolated private func companionDragMapNote(_ note: Notification) {
         AppQueryLog.record("drag-map")
         Task { @MainActor in self.answerCompanionDragMap(note) }
+    }
+
+    @objc nonisolated private func suggestionNote(_ note: Notification) {
+        AppQueryLog.record("suggest")
+        let action = note.userInfo?["action"] as? String ?? ""
+        let kind = note.userInfo?["kind"] as? String ?? "strategy"
+        Task { @MainActor in
+            switch action {
+            case "demo": OllieSuggestionCenter.shared.showDemo(kind)
+            case "refresh": OllieSuggestionCenter.shared.forceRefresh()
+            default: UserDefaults.standard.synchronize()
+            }
+        }
     }
 
     @objc nonisolated private func settingsNote(_ note: Notification) {

@@ -4,7 +4,7 @@ import SwiftUI
 
 /// A soft thought bubble beside the collapsed head: a new Lark arrival or a genuine Control need.
 struct EdgeBubble: Equatable, Identifiable {
-    enum Target: Equatable { case chat(String), inbox, control }
+    enum Target: Equatable { case chat(String), inbox, control, suggestion }
 
     var id = UUID()
     var target: Target
@@ -12,9 +12,12 @@ struct EdgeBubble: Equatable, Identifiable {
     var text: String
     var names: [String] = []
     var count = 1
+    var suggestion: OllieSuggestion? = nil
 
     /// A burst of arrivals coalesces into one bubble; a Control need is never covered by chatter.
     static func arrival(_ current: EdgeBubble?, chatId: String, name: String, text: String) -> EdgeBubble {
+        // A suggestion steps aside for a new message rather than merging with it.
+        let current = current?.target == .suggestion ? nil : current
         guard let current, current.target != .control else {
             return current ?? EdgeBubble(target: .chat(chatId), title: name, text: text, names: [name])
         }
@@ -124,7 +127,13 @@ struct EdgeBubbleHost: View {
     var body: some View {
         ZStack(alignment: .trailing) {
             if let bubble = store.bubble {
-                EdgeBubbleView(bubble: bubble)
+                Group {
+                    if let suggestion = bubble.suggestion {
+                        SuggestionBubbleView(suggestion: suggestion)
+                    } else {
+                        EdgeBubbleView(bubble: bubble)
+                    }
+                }
                     .id(bubble.id)
                     .transition(reduceMotion ? .opacity
                         : .scale(scale: 0.55, anchor: .trailing).combined(with: .opacity))
@@ -147,6 +156,8 @@ final class EdgeBubbleController {
     private var watch: AnyCancellable?
     private var keyWatch: [NSObjectProtocol] = []
     private static let size = NSSize(width: 300, height: 130)
+    private static let suggestionSize = NSSize(width: 360, height: 230)
+    private var size: NSSize { store.bubble?.suggestion == nil ? Self.size : Self.suggestionSize }
 
     init(store: Store) {
         self.store = store
@@ -176,9 +187,11 @@ final class EdgeBubbleController {
     }
 
     private func refresh(expanded: Bool) {
+        // Suggestions have their own switch (`ollie suggest off`); Lark pop-ups do not gate them.
+        let allowed = store.bubble?.suggestion != nil ? OllieSuggestionCenter.shared.enabled : store.settings.showLarkPopups
         let visible = store.bubble != nil
             && !expanded
-            && store.settings.showLarkPopups
+            && allowed
             && !PanelBridge.shared.isFocused
             && CompanionWindowController.shared.window?.isKeyWindow != true
         update(visible: visible)
@@ -195,10 +208,115 @@ final class EdgeBubbleController {
         }
         guard let head = PanelBridge.shared.panel?.frame,
               let screen = (PanelBridge.shared.panel?.screen ?? NSScreen.main)?.visibleFrame else { return }
-        let x = head.midX < screen.midX ? head.maxX - 6 : head.minX - Self.size.width + 6
-        var frame = NSRect(origin: NSPoint(x: x, y: head.midY - 34), size: Self.size)
-        frame.origin.y = min(max(frame.minY, screen.minY + 8), screen.maxY - Self.size.height - 8)
+        let size = self.size
+        let x = head.midX < screen.midX ? head.maxX - 6 : head.minX - size.width + 6
+        // A suggestion's card sits with its foot at the head, so the thought dots point at the face.
+        let lift: CGFloat = store.bubble?.suggestion == nil ? 34 : 60
+        var frame = NSRect(origin: NSPoint(x: x, y: head.midY - lift), size: size)
+        frame.origin.y = min(max(frame.minY, screen.minY + 8), screen.maxY - size.height - 8)
         panel.setFrame(frame, display: false)
         panel.orderFrontRegardless()
+    }
+}
+
+/// "I think you should… want me to?" An agent's proposal said from Ollie's face, with a yes.
+/// Yes runs the same Companion route as the in-app card; Not now records it there too.
+struct SuggestionBubbleView: View {
+    let suggestion: OllieSuggestion
+    @EnvironmentObject var store: Store
+    @State private var hovering = false
+
+    var body: some View {
+        HStack(alignment: .bottom, spacing: 4) {
+            VStack(alignment: .leading, spacing: 10) {
+                HStack(spacing: 8) {
+                    FaceIcon(size: 26)
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text("Ollie has an idea").font(.system(size: 11, weight: .semibold)).foregroundStyle(SiftStyle.green)
+                        Text(suggestion.byline).font(.system(size: 11)).foregroundStyle(SiftStyle.secondary).lineLimit(1)
+                    }
+                    Spacer(minLength: 0)
+                    Button { store.answerSuggestion(yes: false) } label: {
+                        Image(systemName: "xmark").font(.system(size: 10, weight: .semibold))
+                            .foregroundStyle(SiftStyle.muted).frame(width: 20, height: 20)
+                    }
+                    .buttonStyle(.plain).help("Not now").accessibilityLabel("Not now")
+                }
+                Text(suggestion.text).font(.system(size: 13, weight: .medium))
+                    .lineLimit(3).fixedSize(horizontal: false, vertical: true)
+                if let detail = suggestion.detail {
+                    Text(detail).font(.system(size: 11)).foregroundStyle(SiftStyle.secondary)
+                        .lineLimit(hovering ? 4 : 2).fixedSize(horizontal: false, vertical: true)
+                }
+                footer
+            }
+            .frame(width: 300, alignment: .leading)
+            .padding(14)
+            .background(RoundedRectangle(cornerRadius: 18, style: .continuous).fill(SiftStyle.surface.opacity(0.98)))
+            .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous).stroke(SiftStyle.green.opacity(0.35), lineWidth: 1))
+            .shadow(color: .black.opacity(0.32), radius: 10, y: 4)
+            VStack(spacing: 3) {
+                Circle().fill(SiftStyle.surface.opacity(0.98)).frame(width: 9, height: 9)
+                Circle().fill(SiftStyle.surface.opacity(0.98)).frame(width: 5, height: 5).offset(x: 5)
+            }
+            .padding(.bottom, 14)
+        }
+        .foregroundStyle(.white)
+        .environment(\.colorScheme, .dark)
+        .onHover { inside in
+            hovering = inside
+            store.holdBubble(inside)
+        }
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("\(suggestion.byline) suggests: \(suggestion.text)")
+    }
+
+    @ViewBuilder private var footer: some View {
+        switch store.suggestionStatus {
+        case .idle:
+            HStack(spacing: 8) {
+                Button { store.answerSuggestion(yes: true) } label: {
+                    Text(suggestion.yesLabel).font(.system(size: 12, weight: .semibold)).lineLimit(1)
+                        .padding(.horizontal, 12).padding(.vertical, 6)
+                        .background(SiftStyle.green, in: Capsule()).foregroundStyle(.black)
+                }
+                .buttonStyle(.plain)
+                Button { store.answerSuggestion(yes: false) } label: {
+                    Text("Not now").font(.system(size: 12, weight: .medium))
+                        .padding(.horizontal, 12).padding(.vertical, 6)
+                        .background(SiftStyle.raised, in: Capsule())
+                }
+                .buttonStyle(.plain)
+                Spacer(minLength: 0)
+                if suggestion.openPath != nil || isApproval {
+                    Button { store.openBubble() } label: {
+                        Text("Open").font(.system(size: 12)).foregroundStyle(SiftStyle.secondary)
+                    }
+                    .buttonStyle(.plain).help("See it in Companion first")
+                }
+            }
+        case .working:
+            HStack(spacing: 8) {
+                ProgressView().controlSize(.small)
+                Text("On it…").font(.system(size: 12)).foregroundStyle(SiftStyle.secondary)
+            }
+        case .done(let message):
+            Label(message, systemImage: "checkmark.circle.fill").font(.system(size: 12, weight: .medium))
+                .foregroundStyle(SiftStyle.green).lineLimit(2)
+        case .failed(let message):
+            VStack(alignment: .leading, spacing: 6) {
+                Label(message, systemImage: "exclamationmark.triangle.fill").font(.system(size: 12))
+                    .foregroundStyle(.orange).lineLimit(3)
+                Button { store.openBubble() } label: {
+                    Text("Open it instead").font(.system(size: 12, weight: .medium))
+                }
+                .buttonStyle(.plain)
+            }
+        }
+    }
+
+    private var isApproval: Bool {
+        if case .approve = suggestion.yes { return true }
+        return false
     }
 }

@@ -37,6 +37,7 @@ enum CLI {
             case "control": return try await control(rest)
             case "doctor": return try await doctor(rest)
             case "settings": return settingsCommand(rest)
+            case "suggest", "suggestions": return suggest(rest)
             case "open": return openApp()
             case "selftest": return selftest()
             case "help", "--help", "-h": print(usage); return 0
@@ -364,6 +365,28 @@ enum CLI {
         info["sent_at"] = Date().timeIntervalSince1970
         DistributedNotificationCenter.default().postNotificationName(
             name, object: nil, userInfo: info, deliverImmediately: true)
+    }
+
+    private static func suggest(_ args: [String]) -> Int32 {
+        let sub = args.first ?? "status"
+        let off = OllieSuggestionCenter.offKey
+        switch sub {
+        case "demo":
+            let kind = args.dropFirst().first ?? "strategy"
+            postQuery(.suggestionRequest, userInfo: ["action": "demo", "kind": kind])
+            return ok(["ok": true, "demo": kind, "note": "Shows beside the head once Ollie is collapsed."])
+        case "refresh":
+            postQuery(.suggestionRequest, userInfo: ["action": "refresh"])
+            return ok(["ok": true])
+        case "on", "off":
+            UserDefaults.standard.set(sub == "off", forKey: off)
+            postQuery(.suggestionRequest, userInfo: ["action": "settings"])
+            return ok(["ok": true, "enabled": sub == "on"])
+        case "status":
+            return ok(["ok": true, "enabled": !UserDefaults.standard.bool(forKey: off)])
+        default:
+            return fail("Unknown suggest command '\(sub)'. Use demo, refresh, on, off or status.")
+        }
     }
 
     private static func companion(_ args: [String]) -> Int32 {
@@ -711,6 +734,10 @@ enum CLI {
                   set --url http://host:port
                   status | pace | open [--path /same-origin/path]
                   drag-map                         titlebar geometry and hit map
+      suggest   Agent proposals said from Ollie's head ("Yes, do it" / "Not now")
+                  demo [strategy|creator]          preview one; nothing is read or written
+                  refresh                          read the agents' proposals now
+                  on | off | status
       settings  set --show-in menubar|edge|both
       doctor    Check credentials, token and chat access
       open      Open the Ollie app

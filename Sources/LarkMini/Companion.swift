@@ -423,6 +423,7 @@ extension Notification.Name {
     static let companionPaceRequest = Notification.Name.companion("companion-pace-request")
     static let appSettingsChanged = Notification.Name.companion("settings-changed")
     static let companionDragMapRequest = Notification.Name.companion("companion-drag-map-request")
+    static let suggestionRequest = Notification.Name.companion("suggestion-request")
 }
 
 enum CompanionSession {
